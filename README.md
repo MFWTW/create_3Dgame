@@ -78,9 +78,9 @@
 | --- | --- | --- | --- | --- |
 | W1 | 概念原画 | 文本设定 | 高清概念图 | SDXL 基座 + 风格 LoRA + KSampler + 高清修复（Latent Upscale / Ultimate SD Upscale）；固定 seed 保证可复现 |
 | W2 | 深度图 | W1 概念图 | 灰度深度图 | MiDaS（dpt_hybrid，controlnet_aux 预处理器）；可选升级 Depth Anything V2 |
-| W3 | 3D 贴图材质 | W2 深度图 | albedo / normal / height / roughness / metalness 贴图集 | 深度→法线节点（如 NormalMap 类自定义节点）；进阶可用 Material Diffusion / PBR 类节点一次生成多通道 |
-| W4 | 背景音乐 | 音乐风格描述 | WAV / MP3 + 元数据 | MusicGen（ComfyUI-MusicGen）或 Stable Audio Open（AudioScheduler 类节点）；无模型时可在后端接外部音乐 API |
-| W5 | 环境音效 | 音效描述 / 场景标签 | 循环音效 + 触发音效 | 程序化合成自定义节点（白噪声 + 滤波 + 采样拼贴），或音效库标签检索 |
+| W3 | 3D 贴图材质 | W2 深度图 | normal / height / roughness / metalness 贴图集 | 自定义节点 PBRFromDepth：深度图→法线+高度+粗糙度+金属度（可调参数） |
+| W4 | 背景音乐 | 音乐风格描述 | MP3（MusicGen small） | 自定义节点 MusicGenNode（transformers MusicGen），可调 prompt/时长/seed |
+| W5 | 环境音效 | 音效类型 | MP3 循环/触发音效 | 自定义节点 ProceduralSFX：玻璃杯碰撞 / 含糊交谈 / 酒吧环境音（程序化合成） |
 | W6 | 序列帧图集 | 角色设定图 + 动作指令 | PNG 图集 + JSON 配置（帧坐标、时长） | ControlNet OpenPose 逐帧生成（固定 seed + 动作 LoRA 保一致性）；或 AnimateDiff 生成动作视频后抽帧；ImageGrid 拼图 |
 
 ### 各工作流的工程要点
@@ -183,7 +183,7 @@ nginx     （统一入口、HTTPS、静态缓存）
 | P0 | 仓库初始化 + 本文档 | GitHub 可见完整方案 |
 | P1 | 本地 ComfyUI 安装，跑通 W1、W2 | 文本→概念图→深度图可用 |
 | P2 ✅ | 后端 API + 前端页面（任务提交/进度/预览） | 网页能提交 W1/W2 任务并取回结果 |
-| P3 | W3 材质 + W4 音乐 + W5 音效接入 | 三类资产可从网页生成下载 |
+| P3 ✅ | W3 材质 + W4 音乐 + W5 音效接入 | 三类资产可从网页生成下载 |
 | P4 | W6 序列帧图集 | 跑步/攻击动作图集 + JSON 可下载 |
 | P5 | 部署上线 + 文档完善 | 公网可访问，README 覆盖部署细节 |
 
@@ -263,3 +263,9 @@ bash server/run.sh
 #    W1：填设定文本 → 提交 → 预览/下载概念原画
 #    W2：上传概念图 → 生成深度图
 ```
+
+### P3：音乐/音效/材质（当前进度）
+
+- W3 材质、W4 音乐、W5 音效已接入网页（`http://localhost:8000`）
+- MusicGen small 模型已下载到 `ComfyUI/models/musicgen/`（重新部署用 `scripts/download_musicgen.sh`）
+- 自定义节点源码在 `nodes/indie_studio_nodes/`（PBRFromDepth / MusicGenNode / ProceduralSFX）

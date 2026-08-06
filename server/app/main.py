@@ -1,4 +1,4 @@
-"""独立游戏 AI 资产生成平台 - 后端 API（P2）"""
+"""独立游戏 AI 资产生成平台 - 后端 API（P2/P3）"""
 import json
 import shutil
 from contextlib import asynccontextmanager
@@ -16,6 +16,15 @@ WORKFLOWS_DIR = PROJECT_ROOT / "workflows"
 WEB_DIR = PROJECT_ROOT / "web"
 COMFY_INPUT_DIR = PROJECT_ROOT / "ComfyUI" / "input"
 
+# 工作流名 → 模板文件名
+TEMPLATE_FILES = {
+    "W1": "W1_concept.json",
+    "W2": "W2_depth.json",
+    "W3": "W3_material.json",
+    "W4": "W4_music.json",
+    "W5": "W5_sfx.json",
+}
+
 # 每个工作流允许从网页覆盖的参数 → (节点id, 输入名)
 PARAM_MAP = {
     "W1": {
@@ -27,9 +36,15 @@ PARAM_MAP = {
         "steps": ("5", "steps"),
         "cfg": ("5", "cfg"),
     },
-    "W2": {
+    "W2": {"resolution": ("11", "resolution")},
+    "W3": {
         "resolution": ("11", "resolution"),
+        "strength": ("12", "strength"),
+        "roughness_scale": ("12", "roughness_scale"),
+        "metalness": ("12", "metalness"),
     },
+    "W4": {"prompt": ("20", "prompt"), "duration": ("20", "duration"), "seed": ("20", "seed")},
+    "W5": {"kind": ("22", "kind"), "duration": ("22", "duration"), "seed": ("22", "seed")},
 }
 
 WORKFLOW_META = {
@@ -45,10 +60,27 @@ WORKFLOW_META = {
         "inputs": ["resolution"],
         "accepts_image": True,
     },
+    "W3": {
+        "title": "W3 · 3D 贴图材质",
+        "description": "概念图 → 深度 → 法线/高度/粗糙度/金属度",
+        "inputs": ["resolution", "strength", "roughness_scale", "metalness"],
+        "accepts_image": True,
+    },
+    "W4": {
+        "title": "W4 · 背景音乐",
+        "description": "音乐风格文本 → 暗黑氛围电子乐（MusicGen）",
+        "inputs": ["prompt", "duration", "seed"],
+        "accepts_image": False,
+    },
+    "W5": {
+        "title": "W5 · 环境音效",
+        "description": "玻璃杯碰撞 / 含糊交谈 / 酒吧环境音",
+        "inputs": ["kind", "duration", "seed"],
+        "accepts_image": False,
+    },
 }
 
 
-TEMPLATE_FILES = {"W1": "W1_concept.json", "W2": "W2_depth.json"}
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     db.init_db()
@@ -56,7 +88,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Indie Game Asset Studio", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="Indie Game Asset Studio", version="0.3.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -88,6 +120,8 @@ def _apply_params(workflow: dict, name: str, params: dict, job_id: str) -> dict:
     for node in workflow.values():
         if node["class_type"] == "SaveImage":
             node["inputs"]["filename_prefix"] = f"{name}_{job_id}"
+        elif node["class_type"] == "SaveAudioAdvanced":
+            node["inputs"]["filename_prefix"] = f"{name}_{job_id}"
     return workflow
 
 
@@ -100,6 +134,16 @@ def _collect_outputs(history: dict) -> list[dict]:
                     "filename": image["filename"],
                     "subfolder": image.get("subfolder", ""),
                     "type": image.get("type", "output"),
+                    "kind": "image",
+                }
+            )
+        for audio in node_output.get("audio", []):
+            outputs.append(
+                {
+                    "filename": audio["filename"],
+                    "subfolder": audio.get("subfolder", ""),
+                    "type": audio.get("type", "output"),
+                    "kind": "audio",
                 }
             )
     return outputs
@@ -191,6 +235,20 @@ def job_outputs(job_id: str):
     if job is None:
         raise HTTPException(404, "任务不存在")
     return job.get("outputs", [])
+
+
+@app.get("/api/jobs/{job_id}/file/{index}")
+def job_file(job_id: str, index: int):
+    job = db.get_job(job_id)
+    if job is None:
+        raise HTTPException(404, "任务不存在")
+    outputs = job.get("outputs") or []
+    if index < 0 or index >= len(outputs):
+        raise HTTPException(404, "输出不存在")
+    out = outputs[index]
+    return RedirectResponse(
+        comfy.view_url(out["filename"], out.get("subfolder", ""), out.get("type", "output"))
+    )
 
 
 @app.get("/api/jobs/{job_id}/image")

@@ -7,23 +7,34 @@ const DEFAULTS = {
     steps: 20, cfg: 7,
   },
   W2: { resolution: 512 },
+  W3: { resolution: 512, strength: 2.0, roughness_scale: 1.0, metalness: 0.6 },
+  W4: {
+    prompt: "dark ambient electronic music, industrial, heavy metal clanking percussion, ominous, slow tempo, underground bar atmosphere",
+    duration: 8.0,
+    seed: () => Math.floor(Math.random() * 1e9),
+  },
+  W5: { kind: "glass_clink", duration: 4.0, seed: () => Math.floor(Math.random() * 1e9) },
 };
 
 const FIELD_LABELS = {
   text: "设定文本（prompt）",
   negative: "负面提示词",
-  width: "宽度",
-  height: "高度",
-  seed: "随机种子",
-  steps: "采样步数",
-  cfg: "CFG",
+  prompt: "风格描述（prompt）",
+  width: "宽度", height: "高度",
+  seed: "随机种子", steps: "采样步数", cfg: "CFG",
   resolution: "深度图分辨率",
+  strength: "法线强度", roughness_scale: "粗糙度系数", metalness: "金属度",
+  duration: "时长（秒）",
+  kind: "音效类型",
+};
+
+const SELECT_OPTIONS = {
+  kind: ["glass_clink", "murmur", "ambient_bar"],
 };
 
 let workflows = [];
 let currentWorkflow = null;
 let pollTimer = null;
-let currentJobId = null;
 
 async function api(path, opts) {
   const resp = await fetch(path, opts);
@@ -36,6 +47,7 @@ async function api(path, opts) {
 
 async function loadWorkflows() {
   workflows = await api("/api/workflows");
+  currentWorkflow = workflows[0]?.name;
   renderWorkflowSelect();
   renderFields();
 }
@@ -47,18 +59,13 @@ function renderWorkflowSelect() {
     const el = document.createElement("div");
     el.className = "workflow-option" + (wf.name === currentWorkflow ? " active" : "");
     el.innerHTML = `<strong>${wf.title}</strong><small>${wf.description}</small>`;
-    el.onclick = () => {
-      currentWorkflow = wf.name;
-      renderWorkflowSelect();
-      renderFields();
-    };
+    el.onclick = () => { currentWorkflow = wf.name; renderWorkflowSelect(); renderFields(); };
     box.appendChild(el);
   });
 }
 
 function renderFields() {
   const wf = workflows.find((w) => w.name === currentWorkflow);
-  const form = document.getElementById("job-form");
   const fields = document.getElementById("dynamic-fields");
   fields.innerHTML = "";
   document.getElementById("image-upload").classList.toggle("hidden", !wf || !wf.accepts_image);
@@ -70,17 +77,24 @@ function renderFields() {
     label.textContent = FIELD_LABELS[key] || key;
     fields.appendChild(label);
     let input;
-    if (key === "text" || key === "negative") {
+    if (SELECT_OPTIONS[key]) {
+      input = document.createElement("select");
+      SELECT_OPTIONS[key].forEach((opt) => {
+        const o = document.createElement("option");
+        o.value = opt; o.textContent = opt;
+        if (DEFAULTS[currentWorkflow]?.[key] === opt) o.selected = true;
+        input.appendChild(o);
+      });
+    } else if (key === "text" || key === "negative" || key === "prompt") {
       input = document.createElement("textarea");
-      input.value = typeof DEFAULTS[currentWorkflow][key] === "function"
-        ? DEFAULTS[currentWorkflow][key]()
-        : DEFAULTS[currentWorkflow][key];
+      const v = DEFAULTS[currentWorkflow][key];
+      input.value = typeof v === "function" ? v() : v;
     } else {
       input = document.createElement("input");
       input.type = "number";
       const v = DEFAULTS[currentWorkflow][key];
       input.value = typeof v === "function" ? v() : v;
-      input.step = key === "cfg" ? "0.1" : "1";
+      input.step = ["cfg", "strength", "roughness_scale", "metalness", "duration"].includes(key) ? "0.1" : "1";
     }
     input.name = key;
     fields.appendChild(input);
@@ -89,10 +103,12 @@ function renderFields() {
 
 async function submitJob(ev) {
   ev.preventDefault();
-  const form = document.getElementById("job-form");
   const params = {};
-  form.querySelectorAll("#dynamic-fields input, #dynamic-fields textarea").forEach((el) => {
-    params[el.name] = el.name === "text" || el.name === "negative" ? el.value : Number(el.value);
+  document.querySelectorAll("#dynamic-fields input, #dynamic-fields textarea, #dynamic-fields select").forEach((el) => {
+    const key = el.name;
+    if (SELECT_OPTIONS[key]) params[key] = el.value;
+    else if (el.tagName === "TEXTAREA") params[key] = el.value;
+    else params[key] = Number(el.value);
   });
   const fd = new FormData();
   fd.append("workflow", currentWorkflow);
@@ -101,7 +117,6 @@ async function submitJob(ev) {
   if (fileInput.files.length) fd.append("image", fileInput.files[0]);
   try {
     const job = await api("/api/jobs", { method: "POST", body: fd });
-    currentJobId = job.id;
     refreshJobs();
     showDetail(job);
     startPolling(job.id);
@@ -118,14 +133,13 @@ function startPolling(jobId) {
       showDetail(job);
       refreshJobs();
       if (job.status === "done" || job.status === "error") clearInterval(pollTimer);
-    } catch (_) { /* 服务暂不可用则跳过 */ }
+    } catch (_) { }
   }, 2000);
 }
 
 function showDetail(job) {
   const detail = document.getElementById("job-detail");
   detail.classList.remove("hidden");
-  currentJobId = job.id;
   document.getElementById("detail-title").textContent =
     `${workflows.find((w) => w.name === job.workflow)?.title || job.workflow} · ${job.id}`;
   const status = document.getElementById("detail-status");
@@ -133,14 +147,18 @@ function showDetail(job) {
   status.innerHTML = badge + (job.error ? `<br><span style="color:var(--err)">${job.error}</span>` : "");
   const preview = document.getElementById("detail-preview");
   if (job.outputs && job.outputs.length) {
-    preview.innerHTML =
-      `<img src="/api/jobs/${job.id}/image" alt="result">` +
-      `<br><a href="/api/jobs/${job.id}/image" download>下载原图</a>`;
+    preview.innerHTML = job.outputs.map((o, i) => {
+      const url = `/api/jobs/${job.id}/file/${i}`;
+      const label = `下载 ${o.filename}`;
+      if (o.kind === "audio" || /\.(mp3|flac|opus|wav)$/i.test(o.filename)) {
+        return `<audio controls src="${url}" preload="metadata" style="width:100%"></audio><br><a href="${url}" download>${label}</a>`;
+      }
+      return `<img src="${url}" alt="result"><br><a href="${url}" download>${label}</a>`;
+    }).join("<br>");
   } else {
     preview.innerHTML = "";
   }
-  document.getElementById("detail-params").textContent =
-    JSON.stringify(job.params, null, 2);
+  document.getElementById("detail-params").textContent = JSON.stringify(job.params, null, 2);
 }
 
 async function refreshJobs() {

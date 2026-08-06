@@ -4,7 +4,7 @@
 
 ## 功能
 
-- 任务 API：`POST /api/jobs` 提交生成任务（W1 文本参数 / W2 图片上传）
+- 任务 API：`POST /api/jobs` 提交生成任务（W1 文本参数 / W2·W3 图片上传 / W4·W5 音频参数）
 - 状态查询：`GET /api/jobs/{id}`（自动同步 ComfyUI 执行状态）
 - 结果预览/下载：`GET /api/jobs/{id}/image`（代理 ComfyUI `/view`）
 - 工作流列表：`GET /api/workflows`

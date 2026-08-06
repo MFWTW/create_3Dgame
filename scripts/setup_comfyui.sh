@@ -67,6 +67,8 @@ install_node() {
 }
 install_node ComfyUI-DepthAnythingV2 https://github.com/kijai/ComfyUI-DepthAnythingV2.git
 install_node comfyui_controlnet_aux https://github.com/Fannovel16/comfyui_controlnet_aux.git
+# 项目自带节点（P3：PBR/音乐/音效）
+ln -sfn "$PROJECT_DIR/nodes/indie_studio_nodes" custom_nodes/indie_studio_nodes
 
 # 6. 创建模型目录
 echo "==> 创建模型目录 ..."
