@@ -19,8 +19,18 @@ let shadow = null, charPos = null, charTarget = null, charFacing = 1;
 let walkResolve = null, frameIdx = 0, frameMs = 80;
 let dustPts = null;
 
-init();
-loadConfig();
+window.addEventListener("error", (e) => {
+  statusEl.textContent = "脚本错误: " + (e.message || e.type);
+  overlay.classList.add("hidden");
+});
+
+try {
+  init();
+  loadConfig();
+} catch (err) {
+  statusEl.textContent = "3D 初始化失败: " + err.message + "（浏览器是否支持 WebGL？可尝试 Chrome/Edge）";
+  overlay.classList.add("hidden");
+}
 
 async function loadConfig() {
   statusEl.textContent = "加载场景配置…";
@@ -402,6 +412,10 @@ function stopAudio() {
   clearInterval(clinkTimer);
 }
 
+if (!batch) {
+  overlay.classList.add("hidden");
+  statusEl.textContent = "缺少 batch 参数（从任务详情进入）";
+}
 overlay.addEventListener("click", () => {
   startAudio();
   overlay.classList.add("hidden");
@@ -410,7 +424,3 @@ soundBtn.addEventListener("click", () => {
   if (soundOn) { stopAudio(); soundBtn.textContent = "音效开/关（当前关）"; }
   else { startAudio(); soundBtn.textContent = "音效开/关（当前开）"; }
 });
-if (!batch) {
-  overlay.classList.add("hidden");
-  statusEl.textContent = "缺少 batch 参数（从任务详情进入）";
-}
