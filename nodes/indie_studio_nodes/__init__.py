@@ -339,3 +339,47 @@ class ActionPose:
 
 NODE_CLASS_MAPPINGS["ActionPose"] = ActionPose
 NODE_DISPLAY_NAME_MAPPINGS["ActionPose"] = "Action Pose (IndieStudio)"
+
+
+# ---------------------------------------------------------------- W7
+class SaveMeshGLB:
+    """把 TripoSR 等节点输出的 MESH 保存为 GLB/OBJ（W7：2D 角色图 → 3D 模型）"""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "mesh": ("MESH",),
+                "filename_prefix": ("STRING", {"default": "W7_model"}),
+            }
+        }
+
+    RETURN_TYPES = ()
+    OUTPUT_NODE = True
+    FUNCTION = "save"
+    CATEGORY = "indie-studio"
+
+    def save(self, mesh, filename_prefix):
+        from folder_paths import get_save_image_path, get_output_directory
+
+        full_folder, filename, counter, subfolder, _ = get_save_image_path(
+            filename_prefix, get_output_directory()
+        )
+        full_folder = Path(full_folder)
+        saved = []
+        for batch_number, single_mesh in enumerate(mesh):
+            # 与 Flowty 预览一致：TripoSR 坐标系 → 直立 Y-up
+            single_mesh.apply_transform(np.array(
+                [[1, 0, 0, 0], [0, 0, 1, 0], [0, -1, 0, 0], [0, 0, 0, 1]]
+            ))
+            base = filename.replace("%batch_num%", str(batch_number))
+            base = f"{base}_{counter:05}_"
+            single_mesh.export(str(full_folder / f"{base}model.glb"))
+            single_mesh.export(str(full_folder / f"{base}model.obj"))
+            for f in sorted(full_folder.glob(f"{base}*")):
+                saved.append({"filename": f.name, "type": "output", "subfolder": subfolder})
+        return {"ui": {"mesh": saved}}
+
+
+NODE_CLASS_MAPPINGS["SaveMeshGLB"] = SaveMeshGLB
+NODE_DISPLAY_NAME_MAPPINGS["SaveMeshGLB"] = "Save Mesh GLB (IndieStudio)"

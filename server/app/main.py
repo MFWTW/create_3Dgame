@@ -26,6 +26,7 @@ TEMPLATE_FILES = {
     "W4": "W4_music.json",
     "W5": "W5_sfx.json",
     "W6": "W6_sprite.json",
+    "W7": "W7_model.json",
 }
 
 # 每个工作流允许从网页覆盖的参数 → (节点id, 输入名) 或 [(节点id, 输入名), ...]
@@ -60,6 +61,11 @@ PARAM_MAP = {
         "cfg": ("5", "cfg"),
         "denoise": ("5", "denoise"),
         "strength": ("34", "strength"),
+    },
+    "W7": {
+        "geometry_resolution": ("3", "geometry_resolution"),
+        "threshold": ("3", "threshold"),
+        "chunk_size": ("2", "chunk_size"),
     },
 }
 
@@ -100,6 +106,12 @@ WORKFLOW_META = {
         "inputs": ["text", "negative", "action", "frames", "width", "height", "seed", "steps", "cfg", "denoise", "strength"],
         "accepts_image": True,
     },
+    "W7": {
+        "title": "W7 · 2D 转 3D 角色模型",
+        "description": "角色设定图 → 3D 模型（TripoSR）",
+        "inputs": ["geometry_resolution", "threshold", "chunk_size"],
+        "accepts_image": True,
+    },
 }
 
 FRAME_DURATIONS = {"run": 80, "attack": 110, "idle": 160}
@@ -114,6 +126,9 @@ MIME_TYPES = {
     ".opus": "audio/ogg",
     ".wav": "audio/wav",
     ".json": "application/json",
+    ".glb": "model/gltf-binary",
+    ".obj": "text/plain",
+    ".mtl": "text/plain",
 }
 
 
@@ -175,7 +190,7 @@ def _apply_params(workflow: dict, name: str, params: dict, batch: str) -> dict:
                 workflow[node_id]["inputs"][input_name] = value
     # 输出按「批次/可读标签」归档，例如 废土酒吧/W1_concept_00001_.png
     for node in workflow.values():
-        if node["class_type"] in ("SaveImage", "SaveAudioAdvanced"):
+        if node["class_type"] in ("SaveImage", "SaveAudioAdvanced", "SaveMeshGLB"):
             label = node["inputs"].get("filename_prefix") or name
             label = Path(label).name or name
             node["inputs"]["filename_prefix"] = f"{batch}/{label}"
@@ -201,6 +216,15 @@ def _collect_outputs(history: dict) -> list[dict]:
                     "subfolder": audio.get("subfolder", ""),
                     "type": audio.get("type", "output"),
                     "kind": "audio",
+                }
+            )
+        for mesh in node_output.get("ui", {}).get("mesh", []):
+            outputs.append(
+                {
+                    "filename": mesh["filename"],
+                    "subfolder": mesh.get("subfolder", ""),
+                    "type": mesh.get("type", "output"),
+                    "kind": "mesh",
                 }
             )
     return outputs
@@ -418,6 +442,15 @@ def scene_config(batch: str = ""):
         }
     else:
         assets["atlas"] = assets["frames"] = assets["sprite_config"] = None
+
+    # W7 3D 模型（GLB 单文件优先）
+    assets["model"] = None
+    w7 = latest.get("W7")
+    if w7 and w7.get("outputs"):
+        assets["model"] = next(
+            (first(w7, idx) for idx, out in enumerate(w7["outputs"]) if out["filename"].lower().endswith(".glb")),
+            None,
+        )
 
     return {"batch": batch, "assets": assets, "jobs": [{"id": j["id"], "workflow": j["workflow"], "status": j["status"]} for j in jobs]}
 

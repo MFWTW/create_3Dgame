@@ -82,10 +82,11 @@
 | W4 | 背景音乐 | 音乐风格描述 | MP3（MusicGen small） | 自定义节点 MusicGenNode（transformers MusicGen），可调 prompt/时长/seed |
 | W5 | 环境音效 | 音效类型 | MP3 循环/触发音效 | 自定义节点 ProceduralSFX：玻璃杯碰撞 / 含糊交谈 / 酒吧环境音（程序化合成） |
 | W6 | 序列帧图集 | 角色设定图 + 动作指令 | PNG 图集 + JSON 配置（帧尺寸/网格/时长） | 自定义节点 ActionPose 生成动作骨架帧 → ControlNet OpenPose (SDXL) 逐帧 img2img → ImageGrid 拼图；JSON 由后端生成 |
+| W7 | 2D 转 3D 角色模型 | 角色设定图 | GLB/OBJ 3D 模型 | ComfyUI-Flowty-TripoSR（TripoSR 单图重建）；安装：`scripts/setup_3d.sh` + `scripts/download_3d_model.sh` |
 
 ### 各工作流的工程要点
 
-1. **风格统一**：W1 固定风格 LoRA 与 seed；W2~W6 全部以 W1 输出为条件输入，避免「多方外包风格漂移」的问题。
+1. **风格统一**：W1 固定风格 LoRA 与 seed；W2~W7 全部以角色设定图为条件输入，避免「多方外包风格漂移」的问题。
 2. **逐步确认**：W1 → W3、W1 → W4/W5 之间设置人工确认节点（对应需求中「确认后生成 3D 贴图」）。
 3. **可复现**：每个任务记录完整参数（prompt、seed、模型名、LoRA），输出 JSON 清单存档。
 4. **序列帧一致性**：逐帧生成时用「角色设定图 + OpenPose 骨骼 + 固定 seed + 同一 LoRA」约束；帧间差异过大时改用 AnimateDiff 抽帧路线。
@@ -346,14 +347,15 @@ sudo ufw allow 80/tcp        # 推荐：只暴露 nginx 这一个端口
 - W6 序列帧图集 → 场景中的角色动画（跑步循环）
 - W4 音乐循环播放，W5 音效随机触发（玻璃杯碰撞等）
 - 2D 横版场景（`scene2d.html?batch=…`，工作台/3D 场景页可互相切换）：
-  概念图作视差背景 + 剪影道具 + 地板渐变，纯 2D 侧视构图；
-  角色由序列帧抠像后按 9 层「卡片」堆叠（视差剪切 + 前脸浮雕）成有厚度的 3D 体积，
+  酒吧场景**扁平化**：概念图作平面背景 + 剪影道具 + 纯色地面，纯 2D 侧视构图；
+  角色由 W7 的 AI 模型（TripoSR）把 2D 角色图转成真正的 3D 模型（GLB），
+  未生成模型时用内置低模酒保演示；
   A/D 或 ←/→ 移动、空格旋转查看立体、P 恢复自动演出
 - 交互：点击开启声音，鼠标拖拽旋转，滚轮缩放
 
 用法：
 
-1. 用同一个「批次名称」生成一批资产（建议包含 W1~W6）
+1. 用同一个「批次名称」生成一批资产（建议包含 W1~W6，角色转 3D 用 W7）
 2. 在任务详情点「进入 3D 场景」或「进入 2D 场景」，或直接访问
    `/scene.html?batch=<批次名>` 或 `/scene2d.html?batch=<批次名>`
    （如 `/scene.html?batch=废土酒吧环境`）

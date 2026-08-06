@@ -1,9 +1,9 @@
 /* 2D 横版场景：2D 侧视构图 + 真实 3D 体积角色
    与 scene.js（2D 角色贴入 3D 场景）相反：
    - 场景：概念图平铺成 2D 背景，视差层次 + 剪影道具 + 地板渐变（纯 2D 视觉）
-   - 角色：序列帧抠像后按 9 层「卡片」沿 Z 堆叠（最亮层靠前），
-     视差剪切 + 前脸浮雕位移，构成有厚度的 3D 体积；
-     按帧切换贴图播放动画，A/D 或 ←/→ 移动、空格旋转查看立体、P 恢复自动演出 */
+   - 角色：W7 用 AI 模型（TripoSR）把角色设定图转成真正的 3D 模型（GLB）；
+     尚未生成时用内置低模酒保演示；
+     A/D 或 ←/→ 移动、空格旋转查看立体、P 恢复自动演出 */
 const params = new URLSearchParams(location.search);
 const batch = params.get("batch") || "";
 
@@ -33,7 +33,8 @@ let webglOK = true;
 // 角色
 const BASE_YAW = 0.08;          // 静止时的轻微转角，让厚度可见
 const DUST_POOL = 24;           // 脚步扬尘粒子池
-let charGroup = null, charCards = null, charTex = null, frameOffsets = null, charCfg = null;
+let charGroup = null, rigRoot = null, charKind = "none";
+let proc = null, glbMixer = null, glbAnims = [];
 let charX = 0, charFacing = 1, yaw = BASE_YAW, spinning = false;
 let state = "idle", frameIdx = 0, frameAcc = 0;
 let targetX = null, walkResolve = null;
@@ -162,9 +163,9 @@ function updateModeHint() {
     : "自动演出中 · A/D 或 ←/→ 接管移动 · 空格旋转角色";
 }
 
-/* ---------------- 角色更新：走位 / 帧动画 / 3D 旋转 ---------------- */
+/* ---------------- 角色更新：走位 / 3D 旋转 / 动画 ---------------- */
 function updateCharacter(dt, now) {
-  if (!charCfg || !frameOffsets) return;
+  if (!charGroup) return;
   let manualWalk = false;
   if (keys.left || keys.right) {
     const dir = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
@@ -192,18 +193,6 @@ function updateCharacter(dt, now) {
   if (manualWalk) state = "walk";
   else if (!targetX && state === "walk") state = "idle";
 
-  // 帧动画（走路快，待机慢放）
-  const mul = state === "walk" ? 1 : 2.6;
-  frameAcc += dt * 1000;
-  const dur = charCfg.frame_duration_ms * mul;
-  while (frameAcc >= dur) {
-    frameAcc -= dur;
-    frameIdx = (frameIdx + 1) % charCfg.frames;
-  }
-  const fo = frameOffsets[frameIdx];
-  charTex.offset.set(fo.offsetX, fo.offsetY);
-  charTex.repeat.set(fo.repeatX, fo.repeatY);
-
   if (spinning) yaw += dt * 1.9;
   const walkPhase = now * 0.011;
   const moving = state === "walk";
@@ -213,19 +202,21 @@ function updateCharacter(dt, now) {
   const sy = 1 + stretch * (moving ? 0.05 : 0.008);
   const sx = 1 - stretch * (moving ? 0.04 : 0.006);
 
-  // 卡片视差剪切：鼠标移动时各层沿 X 错开，产生真实纵深（深度剪影）
-  for (const card of charCards.children) {
-    const d = card.userData.depth;
-    if (d == null) continue;
-    card.position.x = d * (0.012 + mouse.x * 0.045);
-    card.position.y = d * 0.0015;
-  }
-
   charGroup.position.set(charX, bob, 0);
-  charCards.rotation.y = yaw + breathe * 0.02;
-  charCards.rotation.z = moving ? -charFacing * Math.sin(walkPhase) * 0.03 : 0;
-  charCards.scale.x = charFacing * sx;
-  charCards.scale.y = sy;
+  rigRoot.rotation.y = yaw + breathe * 0.02;
+  rigRoot.rotation.z = moving ? -charFacing * Math.sin(walkPhase) * 0.03 : 0;
+  rigRoot.scale.x = charFacing * sx;
+  rigRoot.scale.y = sy;
+
+  // 内置低模酒保：走路摆臂摆腿
+  if (charKind === "proc" && proc) {
+    const sw = Math.sin(walkPhase);
+    proc.armL.rotation.x = sw * (moving ? 0.55 : 0.05);
+    proc.armR.rotation.x = -sw * (moving ? 0.55 : 0.05);
+    proc.legL.rotation.x = -sw * (moving ? 0.48 : 0);
+    proc.legR.rotation.x = sw * (moving ? 0.48 : 0);
+  }
+  if (glbMixer) glbMixer.update(dt);
 
   shadow.position.set(charX, 0.02, 0);
   const sh = 1 + bob * 2.0;
@@ -306,9 +297,9 @@ async function buildEnv(a) {
   scene.add(sign);
   parallaxLayers.push({ mesh: sign, baseX: 0, k: 0.10, mouseK: 0.4 });
 
-  // 地板渐变 + 地平线
-  const floor = makeFloor();
-  scene.add(floor);
+  // 扁平 2D 地面（纯色，不做 3D 透视）
+  const ground = makeGround();
+  scene.add(ground);
   const groundLine = new THREE.Mesh(
     new THREE.PlaneGeometry(24, 0.05),
     new THREE.MeshBasicMaterial({ color: 0x6b5f3e, transparent: true, opacity: 0.85, depthWrite: false })
@@ -414,34 +405,13 @@ function makeSign() {
   );
 }
 
-function makeFloor() {
-  const cv = document.createElement("canvas");
-  cv.width = 64; cv.height = 256;
-  const ctx = cv.getContext("2d");
-  const grd = ctx.createLinearGradient(0, 0, 0, 256);
-  grd.addColorStop(0, "rgba(0,0,0,0)");
-  grd.addColorStop(0.1, "rgba(30,33,21,0.85)");
-  grd.addColorStop(0.5, "rgba(16,18,12,0.94)");
-  grd.addColorStop(1, "rgba(6,7,5,1)");
-  ctx.fillStyle = grd;
-  ctx.fillRect(0, 0, 64, 256);
-  ctx.strokeStyle = "rgba(120,110,80,0.14)";
-  ctx.lineWidth = 2;
-  for (let y = 18; y < 256; y += 30) {
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(64, y);
-    ctx.stroke();
-  }
-  const t = new THREE.CanvasTexture(cv);
-  t.wrapS = THREE.RepeatWrapping;
-  t.repeat.set(9, 1);
-  t.encoding = THREE.sRGBEncoding;
+function makeGround() {
+  // 扁平 2D 地面：纯色带，不做 3D 透视渐变
   const m = new THREE.Mesh(
-    new THREE.PlaneGeometry(27, 5.6),
-    new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false })
+    new THREE.PlaneGeometry(27, 3.6),
+    new THREE.MeshBasicMaterial({ color: 0x141610, depthWrite: false })
   );
-  m.position.set(0, -2.8, -6.8);
+  m.position.set(0, -1.8, -6.7);
   m.renderOrder = 1;
   return m;
 }
@@ -598,61 +568,33 @@ function makeFrames(canvas, cfg, C, R, cellW, cellH, uMin, vMin, cw, ch, W, H) {
 }
 
 async function buildCharacter(a) {
-  charCfg = a.sprite_config;
-  statusEl.textContent = "抠像并构建 3D 角色…";
-  const img = await loadImg(a.atlas.url);
-  let kr = keySprite(img, charCfg);
-  if (!kr) kr = rawCells(img, charCfg);
-  frameOffsets = kr.frames;
-
-  charTex = new THREE.CanvasTexture(kr.canvas);
-  charTex.encoding = THREE.sRGBEncoding;
-  charTex.generateMipmaps = false;
-  charTex.minFilter = THREE.LinearFilter;
-  charTex.wrapS = charTex.wrapT = THREE.ClampToEdgeWrapping;
-
-  // 9 层卡片沿 Z 堆叠 = 有厚度的 3D 体积
   charGroup = new THREE.Group();
-  charCards = new THREE.Group();
-  const gW = CHAR_H * kr.aspect, gH = CHAR_H;
-  const geo = new THREE.BoxGeometry(gW, gH, CARD_DEPTH);
-  geo.translate(0, gH / 2, 0);
-  for (let i = 0; i < CARD_COUNT; i++) {
-    const t = i / (CARD_COUNT - 1);
-    const shade = 1 - t * 0.8;
-    const cap = new THREE.MeshBasicMaterial({
-      map: charTex,
-      color: new THREE.Color(shade, shade * 0.97, shade * 0.93),
-      alphaTest: 0.5,
-      side: THREE.DoubleSide,
-    });
-    const edge = new THREE.MeshLambertMaterial({
-      color: new THREE.Color().setHSL(0.075, 0.30, 0.28 - t * 0.16),
-      emissive: new THREE.Color().setHSL(0.075, 0.45, 0.045 - t * 0.02),
-    });
-    const card = new THREE.Mesh(geo, [edge, edge, edge, edge, cap, cap]);
-    // i=0 为最亮且最靠前（面向镜头），向后逐层变暗
-    card.position.z = ((CARD_COUNT - 1) / 2 - i) * CARD_GAP;
-    card.userData.depth = (CARD_COUNT - 1) / 2 - i;
-    charCards.add(card);
-  }
-
-  // 前脸浮雕：以精灵亮度为位移贴图，亮部鼓起，转动时能看到真实曲面而非平面贴图
-  const relGeo = new THREE.PlaneGeometry(gW, gH, 64, 80);
-  relGeo.translate(0, gH / 2, 0);
-  const relief = new THREE.Mesh(relGeo, new THREE.MeshBasicMaterial({
-    map: charTex,
-    displacementMap: charTex,
-    displacementScale: 0.10,
-    alphaTest: 0.5,
-    side: THREE.DoubleSide,
-  }));
-  relief.position.z = ((CARD_COUNT - 1) / 2) * CARD_GAP + CARD_DEPTH / 2 + 0.012;
-  relief.userData.depth = (CARD_COUNT - 1) / 2;
-  charCards.add(relief);
-  charGroup.add(charCards);
+  rigRoot = new THREE.Group();
+  charGroup.add(rigRoot);
   scene.add(charGroup);
 
+  if (a.model) {
+    statusEl.textContent = "加载 3D 模型…";
+    try {
+      const res = await loadGLB(a.model.url);
+      rigRoot.add(res.root);
+      glbAnims = res.animations;
+      if (glbAnims.length) {
+        glbMixer = new THREE.AnimationMixer(res.root);
+        glbMixer.clipAction(glbAnims[0]).play();
+      }
+      charKind = "glb";
+      listEl.appendChild(item("3D 模型（W7 · TripoSR）", a.model.filename));
+    } catch (err) {
+      statusEl.textContent = "3D 模型加载失败，使用内置演示角色: " + err.message;
+      buildProcedural();
+    }
+  } else {
+    buildProcedural();
+    listEl.appendChild(item("3D 角色（内置低模酒保）", "procedural"));
+  }
+
+  // 接触阴影
   shadow = new THREE.Mesh(
     new THREE.CircleGeometry(0.55, 28),
     new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.38, depthWrite: false })
@@ -670,11 +612,81 @@ async function buildCharacter(a) {
   }));
   dustPuff.visible = false;
   scene.add(dustPuff);
+}
 
-  const fo = frameOffsets[0];
-  charTex.offset.set(fo.offsetX, fo.offsetY);
-  charTex.repeat.set(fo.repeatX, fo.repeatY);
-  listEl.appendChild(item("3D 角色（序列帧卡片堆叠）", a.atlas.filename));
+/* 内置低模酒保：未生成 W7 模型时演示「3D 角色在扁平 2D 场景」 */
+function buildProcedural() {
+  charKind = "proc";
+  const mat = (c) => new THREE.MeshLambertMaterial({ color: c });
+  const limb = (w, h, d, color, px, py) => {
+    const pivot = new THREE.Group();
+    pivot.position.set(px, py, 0);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color));
+    mesh.position.y = -h / 2;
+    pivot.add(mesh);
+    rigRoot.add(pivot);
+    return pivot;
+  };
+  proc = {
+    legL: limb(0.16, 0.95, 0.18, 0x2f2b25, -0.11, 0.95),
+    legR: limb(0.16, 0.95, 0.18, 0x2f2b25, 0.11, 0.95),
+    armL: limb(0.12, 0.55, 0.13, 0xded6c6, -0.34, 1.52),
+    armR: limb(0.12, 0.55, 0.13, 0xded6c6, 0.34, 1.52),
+  };
+  // 鞋
+  for (const side of [-1, 1]) {
+    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.08, 0.26), mat(0x1d1a16));
+    shoe.position.set(0, 0.035, 0.04);
+    (side < 0 ? proc.legL : proc.legR).add(shoe);
+  }
+  // 躯干：衬衫 + 马甲
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.58, 0.30), mat(0xe8e0d0));
+  torso.position.y = 1.34;
+  rigRoot.add(torso);
+  const vest = new THREE.Mesh(new THREE.BoxGeometry(0.50, 0.36, 0.34), mat(0x2b2620));
+  vest.position.y = 1.24;
+  rigRoot.add(vest);
+  // 围裙 + 领结
+  const apron = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.36, 0.10), mat(0x6b4f33));
+  apron.position.set(0, 1.08, 0.16);
+  rigRoot.add(apron);
+  const bowtie = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.05, 0.06), mat(0x8f3f3f));
+  bowtie.position.set(0, 1.60, 0.15);
+  rigRoot.add(bowtie);
+  // 头 + 发
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 14), mat(0xc9a27e));
+  head.position.y = 1.80;
+  rigRoot.add(head);
+  const hair = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 14), mat(0x241f1a));
+  hair.position.set(0, 1.87, -0.02);
+  hair.scale.set(1.02, 0.7, 1.02);
+  rigRoot.add(hair);
+  // 手
+  for (const a of [proc.armL, proc.armR]) {
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), mat(0xc9a27e));
+    hand.position.y = -0.32;
+    a.add(hand);
+  }
+}
+
+/* W7 生成的 GLB 模型：统一到角色高度并落地 */
+function loadGLB(url) {
+  return new Promise((resolve, reject) => {
+    new THREE.GLTFLoader().load(url, (gltf) => {
+      const root = gltf.scene;
+      root.updateWorldMatrix(true, true);
+      const box = new THREE.Box3().setFromObject(root);
+      const size = box.getSize(new THREE.Vector3());
+      const scale = CHAR_H / Math.max(size.y, 1e-6);
+      root.scale.setScalar(scale);
+      box.setFromObject(root);
+      const c = box.getCenter(new THREE.Vector3());
+      root.position.x -= c.x;
+      root.position.z -= c.z;
+      root.position.y -= box.min.y;
+      resolve({ root, animations: gltf.animations || [] });
+    }, undefined, reject);
+  });
 }
 
 /* ---------------- 剧本：酒保的 2D 横版日常 ---------------- */
@@ -720,11 +732,7 @@ async function buildScene(a) {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0c09);
   await buildEnv(a);
-  if (a.atlas && a.sprite_config) {
-    await buildCharacter(a);
-  } else {
-    statusEl.textContent = "该批次缺少角色图集，仅展示 2D 背景";
-  }
+  await buildCharacter(a);
   setupAudio(a);
   assetsEl.textContent = `共 ${listEl.children.length} 项资产`;
   soundBtn.classList.remove("hidden");

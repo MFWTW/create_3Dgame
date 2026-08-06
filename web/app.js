@@ -21,6 +21,7 @@ const DEFAULTS = {
     seed: () => Math.floor(Math.random() * 1e9),
     steps: 20, cfg: 7, denoise: 0.45, strength: 0.9,
   },
+  W7: { geometry_resolution: 256, threshold: 25, chunk_size: 8192 },
 };
 
 const FIELD_LABELS = {
@@ -34,6 +35,7 @@ const FIELD_LABELS = {
   duration: "时长（秒）",
   kind: "音效类型",
   action: "动作指令", frames: "帧数", denoise: "重绘强度",
+  geometry_resolution: "几何分辨率", threshold: "阈值", chunk_size: "采样块大小",
 };
 
 const SELECT_OPTIONS = {
@@ -192,6 +194,9 @@ function showDetail(job) {
       const label = `下载 ${o.filename}`;
       if (o.kind === "audio" || /\.(mp3|flac|opus|wav)$/i.test(o.filename)) {
         return `<audio controls src="${url}" preload="metadata" style="width:100%"></audio><br><a href="${url}" download>${label}</a>`;
+      }
+      if (o.kind === "mesh" || /\.(glb|gltf|obj)$/i.test(o.filename)) {
+        return `<div style="padding:8px;border:1px solid #2a2d22;border-radius:6px;color:var(--ok);font-size:13px">🧊 3D 模型已生成<br><a href="${url}" download>${label}</a></div>`;
       }
       return `<img src="${url}" alt="result"><br><a href="${url}" download>${label}</a>`;
     }).join("<br>");

@@ -28,11 +28,14 @@ Depth Anything V2 精度更高，但 hf-mirror 暂未镜像该仓库，
 | P3 | 环境音效 | 程序化合成，无需模型；可加音效库 | — |
 | P4 | 序列帧姿态控制 | ControlNet OpenPose SDXL（已下载，`OpenPoseXL2.safetensors`） | 5.0 GB |
 | P4 | 动作一致性 | 动作 LoRA（按角色风格选用） | 数十 MB |
+| W7 | 2D 角色图 → 3D 模型 | TripoSR（`TripoSR.ckpt`，stabilityai/TripoSR） | ~1 GB |
 
 ## 下载方式
 
 ```bash
-bash scripts/download_models.sh
+bash scripts/download_models.sh        # W1~W6 模型
+bash scripts/setup_3d.sh              # W7 TripoSR 节点
+bash scripts/download_3d_model.sh     # W7 TripoSR 权重
 ```
 
 ## 注意
