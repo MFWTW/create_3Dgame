@@ -1,11 +1,26 @@
 # server/
 
-后端服务（计划使用 FastAPI），职责：
+后端服务（FastAPI，P2 已实现）。
 
-- 任务队列：接收前端请求，调用 ComfyUI `/prompt` 提交工作流
-- 状态轮询：`/history/{id}` 查询执行结果
-- 结果代理：`/view` 转发生成图片/音频给前端
-- WebSocket：转发 ComfyUI 执行进度
-- SQLite：项目、任务、资产记录
+## 功能
 
-> P2 阶段开始实现；接口草案见根目录 README「后端 API（草案）」。
+- 任务 API：`POST /api/jobs` 提交生成任务（W1 文本参数 / W2 图片上传）
+- 状态查询：`GET /api/jobs/{id}`（自动同步 ComfyUI 执行状态）
+- 结果预览/下载：`GET /api/jobs/{id}/image`（代理 ComfyUI `/view`）
+- 工作流列表：`GET /api/workflows`
+- 任务记录：SQLite（`server/data/jobs.db`，不提交 git）
+- 前端静态托管：`GET /`（web/index.html）
+
+## 启动
+
+```bash
+bash server/run.sh          # 默认 8000 端口，COMFY_URL 指向 127.0.0.1:8188
+```
+
+## 依赖
+
+```bash
+pip install -r server/requirements.txt
+```
+
+> 下一阶段可扩展：WebSocket 实时进度、任务审批流（确认后再触发 W3/W4）、资产打包下载。

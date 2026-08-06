@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Indie Game Asset Studio</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>INDIEGEN<span>·</span>ASSET STUDIO</h1>
+    <p>独立游戏 AI 资产全链路生成 · P2</p>
+  </div>
+</header>
+<main>
+  <section class="panel" id="form-panel">
+    <h2>生成任务</h2>
+    <div id="workflow-select"></div>
+    <form id="job-form">
+      <div id="dynamic-fields"></div>
+      <div id="image-upload" class="hidden">
+        <label for="image-file">参考图（W2 深度图需要）</label>
+        <input type="file" id="image-file" accept="image/*">
+      </div>
+      <button type="submit" id="submit-btn" disabled>提交任务</button>
+    </form>
+  </section>
+  <section class="panel" id="job-panel">
+    <h2>任务列表</h2>
+    <ul id="job-list"></ul>
+    <div id="job-detail" class="hidden">
+      <h3 id="detail-title"></h3>
+      <div id="detail-status"></div>
+      <div id="detail-preview"></div>
+      <div id="detail-params"></div>
+    </div>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

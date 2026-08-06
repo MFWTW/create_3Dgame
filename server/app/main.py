@@ -1,0 +1,210 @@
+"""独立游戏 AI 资产生成平台 - 后端 API（P2）"""
+import json
+import shutil
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+
+from . import comfy, db
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+WORKFLOWS_DIR = PROJECT_ROOT / "workflows"
+WEB_DIR = PROJECT_ROOT / "web"
+COMFY_INPUT_DIR = PROJECT_ROOT / "ComfyUI" / "input"
+
+# 每个工作流允许从网页覆盖的参数 → (节点id, 输入名)
+PARAM_MAP = {
+    "W1": {
+        "text": ("2", "text"),
+        "negative": ("3", "text"),
+        "width": ("4", "width"),
+        "height": ("4", "height"),
+        "seed": ("5", "seed"),
+        "steps": ("5", "steps"),
+        "cfg": ("5", "cfg"),
+    },
+    "W2": {
+        "resolution": ("11", "resolution"),
+    },
+}
+
+WORKFLOW_META = {
+    "W1": {
+        "title": "W1 · 概念原画",
+        "description": "文本设定 → 高清概念图（SDXL）",
+        "inputs": ["text", "negative", "width", "height", "seed", "steps", "cfg"],
+        "accepts_image": False,
+    },
+    "W2": {
+        "title": "W2 · 深度图",
+        "description": "概念图 → 灰度深度图（MiDaS）",
+        "inputs": ["resolution"],
+        "accepts_image": True,
+    },
+}
+
+
+TEMPLATE_FILES = {"W1": "W1_concept.json", "W2": "W2_depth.json"}
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    db.init_db()
+    COMFY_INPUT_DIR.mkdir(parents=True, exist_ok=True)
+    yield
+
+
+app = FastAPI(title="Indie Game Asset Studio", version="0.2.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/")
+def index():
+    return FileResponse(WEB_DIR / "index.html")
+
+
+def _load_template(name: str) -> dict:
+    path = WORKFLOWS_DIR / TEMPLATE_FILES.get(name, f"{name}.json")
+    if not path.exists():
+        raise HTTPException(404, f"工作流 {name} 不存在")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _apply_params(workflow: dict, name: str, params: dict, job_id: str) -> dict:
+    for key, value in params.items():
+        if key not in PARAM_MAP.get(name, {}):
+            continue
+        node_id, input_name = PARAM_MAP[name][key]
+        if node_id in workflow:
+            workflow[node_id]["inputs"][input_name] = value
+    # 输出文件名带上 job_id，方便定位
+    for node in workflow.values():
+        if node["class_type"] == "SaveImage":
+            node["inputs"]["filename_prefix"] = f"{name}_{job_id}"
+    return workflow
+
+
+def _collect_outputs(history: dict) -> list[dict]:
+    outputs = []
+    for node_output in (history.get("outputs") or {}).values():
+        for image in node_output.get("images", []):
+            outputs.append(
+                {
+                    "filename": image["filename"],
+                    "subfolder": image.get("subfolder", ""),
+                    "type": image.get("type", "output"),
+                }
+            )
+    return outputs
+
+
+def _refresh_job(job: dict) -> dict:
+    """查询 ComfyUI，把排队/运行中的任务状态同步到本地"""
+    if not job or not job.get("prompt_id"):
+        return job
+    try:
+        history = comfy.get_history(job["prompt_id"])
+    except Exception:
+        return job
+    if history is None:
+        return job
+    status = (history.get("status") or {}).get("status_str")
+    if status == "success":
+        db.update_job(
+            job["id"],
+            status="done",
+            outputs=json.dumps(_collect_outputs(history), ensure_ascii=False),
+        )
+    elif status == "error":
+        err = "未知错误"
+        for msg in (history.get("status") or {}).get("messages", []):
+            if msg[0] == "execution_error":
+                err = msg[1].get("exception_message", err)
+        db.update_job(job["id"], status="error", error=err)
+    return db.get_job(job["id"])
+
+
+@app.get("/api/workflows")
+def list_workflows():
+    return [{"name": k, **v} for k, v in WORKFLOW_META.items()]
+
+
+@app.post("/api/jobs")
+async def create_job(
+    workflow: str = Form(...),
+    params: str = Form("{}"),
+    image: UploadFile | None = File(None),
+):
+    if workflow not in WORKFLOW_META:
+        raise HTTPException(404, "未知工作流")
+    try:
+        params = json.loads(params)
+    except json.JSONDecodeError:
+        raise HTTPException(400, "params 必须是合法 JSON")
+
+    job_id = db.create_job(workflow, params)
+    template = _load_template(workflow)
+
+    # 上传图片 → ComfyUI/input
+    if image is not None and image.filename:
+        filename = f"{job_id}_{Path(image.filename).name}"
+        dest = COMFY_INPUT_DIR / filename
+        with dest.open("wb") as f:
+            shutil.copyfileobj(image.file, f)
+        for node in template.values():
+            if node["class_type"] == "LoadImage":
+                node["inputs"]["image"] = filename
+
+    workflow_json = _apply_params(template, workflow, params, job_id)
+    try:
+        prompt_id = comfy.submit(workflow_json)
+    except Exception as exc:
+        db.update_job(job_id, status="error", error=str(exc))
+        raise HTTPException(502, f"提交 ComfyUI 失败: {exc}")
+    db.update_job(job_id, status="running", prompt_id=prompt_id)
+    return db.get_job(job_id)
+
+
+@app.get("/api/jobs")
+def jobs_list(limit: int = 20):
+    return [_refresh_job(j) for j in db.list_jobs(limit)]
+
+
+@app.get("/api/jobs/{job_id}")
+def job_detail(job_id: str):
+    job = db.get_job(job_id)
+    if job is None:
+        raise HTTPException(404, "任务不存在")
+    return _refresh_job(job)
+
+
+@app.get("/api/jobs/{job_id}/outputs")
+def job_outputs(job_id: str):
+    job = _refresh_job(db.get_job(job_id))
+    if job is None:
+        raise HTTPException(404, "任务不存在")
+    return job.get("outputs", [])
+
+
+@app.get("/api/jobs/{job_id}/image")
+def job_image(job_id: str):
+    job = db.get_job(job_id)
+    if job is None:
+        raise HTTPException(404, "任务不存在")
+    outputs = job.get("outputs") or []
+    if not outputs:
+        raise HTTPException(404, "任务还没有输出")
+    first = outputs[0]
+    return RedirectResponse(
+        comfy.view_url(first["filename"], first.get("subfolder", ""), first.get("type", "output"))
+    )
+
+
+app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")

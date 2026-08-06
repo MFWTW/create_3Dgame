@@ -182,7 +182,7 @@ nginx     （统一入口、HTTPS、静态缓存）
 | --- | --- | --- |
 | P0 | 仓库初始化 + 本文档 | GitHub 可见完整方案 |
 | P1 | 本地 ComfyUI 安装，跑通 W1、W2 | 文本→概念图→深度图可用 |
-| P2 | 后端 API + 前端页面（任务提交/进度/预览） | 网页能提交 W1 任务并取回结果 |
+| P2 ✅ | 后端 API + 前端页面（任务提交/进度/预览） | 网页能提交 W1/W2 任务并取回结果 |
 | P3 | W3 材质 + W4 音乐 + W5 音效接入 | 三类资产可从网页生成下载 |
 | P4 | W6 序列帧图集 | 跑步/攻击动作图集 + JSON 可下载 |
 | P5 | 部署上线 + 文档完善 | 公网可访问，README 覆盖部署细节 |
@@ -251,3 +251,15 @@ cd ComfyUI && .venv/bin/python main.py --listen 0.0.0.0 --port 8188
 
 > P1 环境说明：安装脚本自动检测 GPU（NVIDIA→CUDA / AMD→ROCm / 无 GPU→CPU），并固定
 > torch/torchvision/torchaudio 的配套版本（2.11.0），避免 ABI 不兼容导致启动失败。
+
+### P2：启动网页（当前进度）
+
+```bash
+# 1. 确保 ComfyUI 已在 8188 端口运行
+# 2. 启动后端（首次需先 pip install -r server/requirements.txt）
+bash server/run.sh
+
+# 3. 浏览器打开 http://localhost:8000
+#    W1：填设定文本 → 提交 → 预览/下载概念原画
+#    W2：上传概念图 → 生成深度图
+```
