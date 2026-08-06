@@ -326,6 +326,75 @@ async def create_job(
         raise HTTPException(502, f"提交 ComfyUI 失败: {exc}")
     db.update_job(job_id, status="running", prompt_id=prompt_id)
     return db.get_job(job_id)
+@app.get("/api/scene")
+def scene_config(batch: str = ""):
+    """按批次汇总资产，生成 3D 场景配置（前端 scene.html 使用）"""
+    if not batch:
+        raise HTTPException(400, "缺少 batch 参数")
+    jobs = [j for j in db.list_jobs(200, batch) if j.get("status") == "done"]
+    if not jobs:
+        raise HTTPException(404, f"批次「{batch}」下没有已完成的任务")
+    latest = {}
+    for j in jobs:
+        if j["workflow"] not in latest or j["created_at"] > latest[j["workflow"]]["created_at"]:
+            latest[j["workflow"]] = j
+
+    def first(job, idx=0):
+        outs = job.get("outputs") or []
+        if idx >= len(outs):
+            return None
+        return {"url": f"/api/jobs/{job['id']}/file/{idx}", "filename": outs[idx]["filename"]}
+
+    # 概念图取该批次最早完成的 W1（环境），角色不参与场景主体
+    w1_done = sorted(
+        [j for j in jobs if j["workflow"] == "W1" and j.get("outputs")],
+        key=lambda j: j["created_at"],
+    )
+    concept = first(w1_done[0]) if w1_done else None
+
+    # 材质贴图按文件名识别（W3_normal/height/roughness/metalness），不依赖输出顺序
+    w3 = latest.get("W3")
+    materials = {"normal": None, "height": None, "roughness": None, "metalness": None}
+    if w3 and w3.get("outputs"):
+        for idx, out in enumerate(w3["outputs"]):
+            fn = out["filename"].lower()
+            for key in materials:
+                if materials[key] is None and key in fn:
+                    materials[key] = first(w3, idx)
+
+    assets = {
+        "concept": concept,
+        "depth": first(latest.get("W2")),
+        "materials": materials,
+        "music": first(latest.get("W4")),
+        "sfx": [first(j) for j in jobs if j["workflow"] == "W5" and j.get("outputs")],
+    }
+
+    w6 = latest.get("W6")
+    if w6 and w6.get("outputs"):
+        outs = w6["outputs"]
+        assets["atlas"] = first(w6, len(outs) - 1)
+        assets["frames"] = [first(w6, i) for i in range(len(outs) - 1)]
+        p = w6["params"]
+        frames = max(1, int(p.get("frames", 8)))
+        width = int(p.get("width", 512))
+        height = int(p.get("height", 512))
+        action = p.get("action", "run")
+        columns = min(4, frames)
+        assets["sprite_config"] = {
+            "action": action,
+            "frames": frames,
+            "frame_width": width,
+            "frame_height": height,
+            "columns": columns,
+            "rows": ceil(frames / columns),
+            "frame_duration_ms": FRAME_DURATIONS.get(action, 80),
+        }
+    else:
+        assets["atlas"] = assets["frames"] = assets["sprite_config"] = None
+
+    return {"batch": batch, "assets": assets, "jobs": [{"id": j["id"], "workflow": j["workflow"], "status": j["status"]} for j in jobs]}
+
 @app.get("/api/jobs")
 def jobs_list(limit: int = 20, batch: str = ""):
     return [_refresh_job(j) for j in db.list_jobs(limit, batch)]
