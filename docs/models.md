@@ -40,3 +40,13 @@ bash scripts/download_models.sh
 - 模型文件较大，请勿使用 `git add -A` 提交（`.gitignore` 已排除 `*.safetensors` 等）；
 - 更换模型时只需删除旧文件重新执行下载脚本；
 - 每个模型应记录来源与版本，方便复现生成结果。
+
+## 提示词翻译（中→英，网页功能）
+
+| 用途 | 文件 | 来源 | 大小 | 目标路径 |
+| --- | --- | --- | --- | --- |
+| 中文提示词→英文 | `opus-mt-zh-en/*`（5 个文件） | Helsinki-NLP/opus-mt-zh-en | ~300 MB | `models/translator/opus-mt-zh-en/` |
+
+下载：`bash scripts/download_translator.sh`
+
+> 提示词框支持中文输入：提交时自动翻译成英文；已是英文则原样保留。

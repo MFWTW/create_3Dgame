@@ -126,3 +126,5 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .row select { flex: 1; background: #10130d; border: 1px solid var(--line); border-radius: 5px; color: var(--text); padding: 8px 10px; font: inherit; font-size: 13px; }
 button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); margin-top: 0; }
 select:focus { outline: none; border-color: var(--accent); }
+
+button.small { padding: 5px 10px; font-size: 11px; margin-top: 6px; }

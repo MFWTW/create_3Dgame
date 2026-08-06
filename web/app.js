@@ -101,6 +101,12 @@ function renderFields() {
       input = document.createElement("textarea");
       const v = DEFAULTS[currentWorkflow][key];
       input.value = typeof v === "function" ? v() : v;
+      const tbtn = document.createElement("button");
+      tbtn.type = "button";
+      tbtn.className = "ghost small translate-btn";
+      tbtn.textContent = "中文→英文";
+      tbtn.onclick = () => manualTranslate(key);
+      fields.appendChild(tbtn);
     } else {
       input = document.createElement("input");
       input.type = "number";
@@ -122,6 +128,12 @@ async function submitJob(ev) {
     else if (el.tagName === "TEXTAREA") params[key] = el.value;
     else params[key] = Number(el.value);
   });
+  // 提示词字段：中文自动翻译成英文（英文原样保留）
+  for (const key of ["text", "negative", "prompt"]) {
+    if (params[key] && /[\u4e00-\u9fff]/.test(params[key])) {
+      try { params[key] = await translateText(params[key]); } catch (_) { }
+    }
+  }
   const fd = new FormData();
   fd.append("workflow", currentWorkflow);
   fd.append("params", JSON.stringify(params));
@@ -188,6 +200,29 @@ function showDetail(job) {
     preview.innerHTML = "";
   }
   document.getElementById("detail-params").textContent = JSON.stringify(job.params, null, 2);
+}
+
+async function translateText(text) {
+  const data = await api("/api/translate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  return data.text;
+}
+
+async function manualTranslate(key) {
+  const input = document.querySelector(`[name="${key}"]`);
+  if (!input) return;
+  const btn = input.parentElement.querySelector(".translate-btn");
+  if (btn) { btn.disabled = true; btn.textContent = "翻译中…"; }
+  try {
+    input.value = await translateText(input.value);
+  } catch (err) {
+    alert("翻译失败: " + err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "中文→英文"; }
+  }
 }
 
 async function loadServerFiles() {

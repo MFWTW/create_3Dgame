@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import comfy, db
+from . import comfy, db, translator
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 WORKFLOWS_DIR = PROJECT_ROOT / "workflows"
@@ -102,6 +102,10 @@ WORKFLOW_META = {
 }
 
 FRAME_DURATIONS = {"run": 80, "attack": 110, "idle": 160}
+
+
+# 需要自动中→英翻译的提示词字段
+PROMPT_FIELDS = {"W1": ["text", "negative"], "W4": ["prompt"], "W6": ["text", "negative"]}
 
 
 @asynccontextmanager
@@ -219,6 +223,25 @@ def list_files(location: str = "input"):
     return files
 
 
+from pydantic import BaseModel
+
+
+class TranslateRequest(BaseModel):
+    text: str
+
+
+@app.post("/api/translate")
+def translate_text(req: TranslateRequest):
+    """中文 → 英文；纯英文原样返回"""
+    try:
+        return {
+            "text": translator.translate(req.text),
+            "translated": translator.needs_translation(req.text),
+        }
+    except Exception as exc:
+        raise HTTPException(502, f"翻译失败: {exc}")
+
+
 @app.post("/api/jobs")
 async def create_job(
     workflow: str = Form(...),
@@ -233,6 +256,14 @@ async def create_job(
         params = json.loads(params)
     except json.JSONDecodeError:
         raise HTTPException(400, "params 必须是合法 JSON")
+
+    # 提示词字段：中文自动翻译成英文（英文原样保留），失败则用原文
+    for field in PROMPT_FIELDS.get(workflow, []):
+        if field in params and isinstance(params[field], str):
+            try:
+                params[field] = translator.translate(params[field])
+            except Exception:
+                pass
 
     job_id = db.create_job(workflow, params)
     template = _load_template(workflow)
