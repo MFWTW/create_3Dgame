@@ -8,6 +8,12 @@ const params = new URLSearchParams(location.search);
 const batch = params.get("batch") || "";
 
 const $ = (id) => document.getElementById(id);
+
+window.addEventListener("error", (e) => {
+  document.getElementById("scene-status").textContent = "脚本错误: " + (e.message || e.type);
+  document.getElementById("start-overlay").classList.add("hidden");
+});
+
 const titleEl = $("scene-title");
 const assetsEl = $("scene-assets");
 const listEl = $("asset-list");
@@ -25,6 +31,8 @@ let music, ambient, clink, clinkTimer, soundOn = false;
 let webglOK = true;
 
 // 角色
+const BASE_YAW = 0.08;          // 静止时的轻微转角，让厚度可见
+const DUST_POOL = 24;           // 脚步扬尘粒子池
 let charGroup = null, charCards = null, charTex = null, frameOffsets = null, charCfg = null;
 let charX = 0, charFacing = 1, yaw = BASE_YAW, spinning = false;
 let state = "idle", frameIdx = 0, frameAcc = 0;
@@ -45,16 +53,9 @@ const CARD_DEPTH = 0.07;
 const WALK_SPEED = 1.7;
 const VIEW_H = 5.6;
 const X_LIMIT = 3.0;
-const BASE_YAW = 0.08;          // 静止时的轻微转角，让厚度可见
-const DUST_POOL = 24;           // 脚步扬尘粒子池
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 let lastT = performance.now();
-
-window.addEventListener("error", (e) => {
-  statusEl.textContent = "脚本错误: " + (e.message || e.type);
-  overlay.classList.add("hidden");
-});
 
 try {
   init();
