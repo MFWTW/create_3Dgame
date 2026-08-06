@@ -19,7 +19,7 @@ const DEFAULTS = {
     negative: "blurry, low quality, deformed, watermark, text, multiple characters, extra limbs",
     action: "run", frames: 8, width: 512, height: 512,
     seed: () => Math.floor(Math.random() * 1e9),
-    steps: 20, cfg: 7, denoise: 0.55, strength: 0.85,
+    steps: 20, cfg: 7, denoise: 0.45, strength: 0.9,
   },
 };
 
