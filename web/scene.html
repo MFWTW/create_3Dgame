@@ -30,17 +30,13 @@
   <p id="scene-action" style="color:var(--ok);font-size:13px;margin-top:6px;min-height:18px"></p>
   <ul id="asset-list"></ul>
 </div>
-<a class="back" id="mode-link" href="/scene2d.html" style="right:128px">2D 场景 →</a>
 <a class="back" href="/">← 返回工作台</a>
 <div id="scene-status">加载中…</div>
 <button id="sound-btn" class="ghost hidden">音效开/关</button>
-<div id="start-overlay"><div class="box"><h2 id="ov-title">3D 场景</h2><p>点击任意处开启音乐与音效 · 拖拽旋转 · 滚轮缩放</p></div></div>
+<div id="start-overlay"><div class="box"><h2 id="ov-title">3D 场景</h2><p>点击任意处开启音乐与音效 · 镜头自动旋转 · 可拖拽/缩放</p></div></div>
 <script src="/static/vendor/three.min.js"></script>
 <script src="/static/vendor/OrbitControls.js"></script>
-<script src="/static/scene.js?v=5"></script>
-<script>
-  const mb = new URLSearchParams(location.search).get("batch") || "";
-  document.getElementById("mode-link").href = "/scene2d.html?batch=" + encodeURIComponent(mb);
-</script>
+<script src="/static/vendor/GLTFLoader.js"></script>
+<script src="/static/scene.js?v=6"></script>
 </body>
 </html>

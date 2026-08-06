@@ -14,13 +14,17 @@ document.getElementById("ov-title").textContent = batch ? `「${batch}」3D 场�
 let scene, camera, renderer, controls;
 let music, ambient, clink, clinkTimer, soundOn = false;
 
-let sprite = null, spriteTex = null, spriteCfg = null;
+let charGroup = null, rigRoot = null, charKind = "none";
+let proc = null, glbMixer = null, glass = null;
 let shadow = null, charPos = null, charTarget = null, charFacing = 1;
-let walkResolve = null, frameIdx = 0, frameMs = 80;
+let walkResolve = null;
 let dustPts = null;
 let webglOK = true;
 let lastT = performance.now();
 let state = "idle";
+let drinkT = 0;
+const CHAR_H = 1.9;
+const BASE_YAW = 0.08;
 
 window.addEventListener("error", (e) => {
   statusEl.textContent = "脚本错误: " + (e.message || e.type);
@@ -43,7 +47,7 @@ async function loadConfig() {
     const cfg = await resp.json();
     titleEl.textContent = cfg.batch;
     await buildScene(cfg.assets);
-    statusEl.textContent = "就绪 · 拖拽旋转 · 滚轮缩放";
+    statusEl.textContent = "就绪 · 自动演出 · 拖拽旋转 · 滚轮缩放";
   } catch (err) {
     statusEl.textContent = "加载失败: " + err.message;
   }
@@ -76,6 +80,9 @@ function init() {
   controls.maxPolarAngle = 1.48;
   controls.minDistance = 2.5;
   controls.maxDistance = 12;
+  controls.autoRotate = true;
+  controls.autoRotateSpeed = 0.6;
+  controls.addEventListener("start", () => { controls.autoRotate = false; });
   addEventListener("resize", () => {
     camera.aspect = innerWidth / innerHeight;
     camera.updateProjectionMatrix();
@@ -99,28 +106,64 @@ function animate() {
     }
     pos.needsUpdate = true;
   }
-  if (sprite) {
-    if (state === "walk" && charTarget) {
-      const dx = charTarget.x - charPos.x, dz = charTarget.z - charPos.z;
-      const dist = Math.hypot(dx, dz);
-      const speed = 1.4 * dt;
-      if (dist <= speed) {
-        charPos.set(charTarget.x, 0, charTarget.z);
-        charTarget = null;
-        state = "stand";
-        if (walkResolve) { walkResolve(); walkResolve = null; }
-      } else {
-        charPos.x += dx / dist * speed;
-        charPos.z += dz / dist * speed;
-        charFacing = dx >= 0 ? 1 : -1;
-      }
-    }
-    const bob = state === "walk" ? Math.abs(Math.sin(now * 0.01)) * 0.05 : 0;
-    sprite.position.set(charPos.x, 0.9 + bob, charPos.z);
-    sprite.scale.x = charFacing * 1.8;
-    if (shadow) shadow.position.set(charPos.x, 0.02, charPos.z);
-  }
+  if (charGroup) updateCharacter(dt, now);
   renderer.render(scene, camera);
+}
+
+/* ---------------- 角色更新：走位 / 3D 旋转 / 喝酒动作 ---------------- */
+function updateCharacter(dt, now) {
+  if (state === "walk" && charTarget) {
+    const dx = charTarget.x - charPos.x, dz = charTarget.z - charPos.z;
+    const dist = Math.hypot(dx, dz);
+    const speed = 1.4 * dt;
+    if (dist <= speed) {
+      charPos.set(charTarget.x, 0, charTarget.z);
+      charTarget = null;
+      state = "stand";
+      if (walkResolve) { const r = walkResolve; walkResolve = null; r(); }
+    } else {
+      charPos.x += dx / dist * speed;
+      charPos.z += dz / dist * speed;
+      charFacing = dx >= 0 ? 1 : -1;
+    }
+  }
+  const walkPhase = now * 0.011;
+  const moving = state === "walk";
+  const breathing = Math.sin(now * 0.0022);
+  const bob = moving ? Math.abs(Math.sin(walkPhase)) * 0.05 : Math.abs(breathing) * 0.012;
+  const stretch = moving ? Math.sin(walkPhase * 2) : breathing;
+  const sy = 1 + stretch * (moving ? 0.05 : 0.008);
+  const sx = 1 - stretch * (moving ? 0.04 : 0.006);
+
+  charGroup.position.set(charPos.x, bob, charPos.z);
+  rigRoot.rotation.y = BASE_YAW + breathing * 0.02;
+  rigRoot.rotation.z = moving ? -charFacing * Math.sin(walkPhase) * 0.03 : 0;
+  rigRoot.scale.x = charFacing * sx;
+  rigRoot.scale.y = sy;
+
+  if (charKind === "proc" && proc) {
+    const sw = Math.sin(walkPhase);
+    const drinking = state === "drink";
+    const raise = drinking ? smoothstep(drinkT) * 1.35 : 0;
+    proc.armR.rotation.x = -raise + (drinking ? 0 : -sw * (moving ? 0.55 : 0.05));
+    proc.armL.rotation.x = sw * (moving ? 0.55 : 0.05);
+    proc.legL.rotation.x = -sw * (moving ? 0.48 : 0);
+    proc.legR.rotation.x = sw * (moving ? 0.48 : 0);
+    if (glass) {
+      glass.visible = true;
+      glass.rotation.x = drinking ? -0.45 : 0;
+      glass.rotation.z = drinking ? 0.15 : 0;
+    }
+  } else if (charKind === "glb") {
+    if (glass) glass.visible = false;
+    if (glbMixer) glbMixer.update(dt);
+  }
+  if (shadow) shadow.position.set(charPos.x, 0.02, charPos.z);
+}
+
+function smoothstep(t) {
+  t = Math.max(0, Math.min(1, t));
+  return t * t * (3 - 2 * t);
 }
 
 /* ---------------- 环境：真实几何 ----------------
@@ -150,18 +193,19 @@ function buildRoom(a) {
 
   // 概念图作为后墙大幅海报（带深度置换与法线）
   if (a.concept) {
+    // 环境照片 → 3D：用 W2 深度图把整幅照片置换出真实几何（酒架/吧台随镜头有视差）
     const poster = new THREE.Mesh(
-      new THREE.PlaneGeometry(6.6, 2.7, 96, 36),
+      new THREE.PlaneGeometry(8.6, 3.3, 128, 64),
       new THREE.MeshStandardMaterial({
         map: tex(loader, a.concept),
         displacementMap: tex(loader, a.depth),
-        displacementScale: a.depth ? -0.22 : 0,
+        displacementScale: a.depth ? -0.5 : 0,
         normalMap: tex(loader, a.materials && a.materials.normal),
         roughness: 0.85,
         metalness: 0.12,
       })
     );
-    poster.position.set(0, 1.85, -3.39);
+    poster.position.set(0, 1.9, -3.39);
     scene.add(poster);
     listEl.appendChild(item("背景海报", a.concept.filename));
   }
@@ -264,78 +308,157 @@ function tex(loader, u) {
   return t;
 }
 
-/* ---------------- 角色：贴地 + 阴影 + 统一色调 ---------------- */
-function buildSpriteTexture(atlasUrl, sc) {
+/* ---------------- 角色：W7 3D 模型 / 内置低模酒保 ---------------- */
+function loadGLB(url) {
   return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const cv = document.createElement("canvas");
-      cv.width = img.width; cv.height = img.height;
-      const ctx = cv.getContext("2d");
-      ctx.filter = "contrast(1.18) brightness(1.06) saturate(1.3)";
-      ctx.drawImage(img, 0, 0);
-      const t = new THREE.CanvasTexture(cv);
-      t.wrapS = t.wrapT = THREE.RepeatWrapping;
-      t.repeat.set(1 / sc.columns, 1 / sc.rows);
-      t.encoding = THREE.sRGBEncoding;
-      resolve(t);
-    };
-    img.onerror = () => reject(new Error("图集加载失败: " + atlasUrl));
-    img.src = atlasUrl;
+    new THREE.GLTFLoader().load(url, (gltf) => {
+      const root = gltf.scene;
+      root.updateWorldMatrix(true, true);
+      const box = new THREE.Box3().setFromObject(root);
+      const size = box.getSize(new THREE.Vector3());
+      const scale = CHAR_H / Math.max(size.y, 1e-6);
+      root.scale.setScalar(scale);
+      box.setFromObject(root);
+      const c = box.getCenter(new THREE.Vector3());
+      root.position.x -= c.x;
+      root.position.z -= c.z;
+      root.position.y -= box.min.y;
+      resolve({ root, animations: gltf.animations || [] });
+    }, undefined, reject);
   });
 }
 
-function setSpriteFrame() {
-  if (!spriteTex || !spriteCfg) return;
-  const row = Math.floor(frameIdx / spriteCfg.columns);
-  const col = frameIdx % spriteCfg.columns;
-  spriteTex.offset.set(col / spriteCfg.columns, 1 - (row + 1) / spriteCfg.rows);
+/* 内置低模酒保：未生成 W7 模型时演示「3D 角色在 3D 酒吧喝酒」 */
+function buildProcedural() {
+  charKind = "proc";
+  const mat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8, metalness: 0.05 });
+  const limb = (w, h, d, color, px, py) => {
+    const pivot = new THREE.Group();
+    pivot.position.set(px, py, 0);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color));
+    mesh.position.y = -h / 2;
+    pivot.add(mesh);
+    rigRoot.add(pivot);
+    return pivot;
+  };
+  proc = {
+    legL: limb(0.16, 0.95, 0.18, 0x2f2b25, -0.11, 0.95),
+    legR: limb(0.16, 0.95, 0.18, 0x2f2b25, 0.11, 0.95),
+    armL: limb(0.12, 0.55, 0.13, 0xded6c6, -0.34, 1.52),
+    armR: limb(0.12, 0.55, 0.13, 0xded6c6, 0.34, 1.52),
+  };
+  // 鞋
+  for (const side of [-1, 1]) {
+    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.08, 0.26), mat(0x1d1a16));
+    shoe.position.set(0, 0.035, 0.04);
+    (side < 0 ? proc.legL : proc.legR).add(shoe);
+  }
+  // 躯干：衬衫 + 马甲 + 围裙 + 领结
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.58, 0.30), mat(0xe8e0d0));
+  torso.position.y = 1.34;
+  rigRoot.add(torso);
+  const vest = new THREE.Mesh(new THREE.BoxGeometry(0.50, 0.36, 0.34), mat(0x2b2620));
+  vest.position.y = 1.24;
+  rigRoot.add(vest);
+  const apron = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.36, 0.10), mat(0x6b4f33));
+  apron.position.set(0, 1.08, 0.16);
+  rigRoot.add(apron);
+  const bowtie = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.05, 0.06), mat(0x8f3f3f));
+  bowtie.position.set(0, 1.60, 0.15);
+  rigRoot.add(bowtie);
+  // 头 + 发
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 14), mat(0xc9a27e));
+  head.position.y = 1.80;
+  rigRoot.add(head);
+  const hair = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 14), mat(0x241f1a));
+  hair.position.set(0, 1.87, -0.02);
+  hair.scale.set(1.02, 0.7, 1.02);
+  rigRoot.add(hair);
+  // 手 + 酒杯（握在右手）
+  for (const a of [proc.armL, proc.armR]) {
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), mat(0xc9a27e));
+    hand.position.y = -0.32;
+    a.add(hand);
+  }
+  glass = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.045, 0.05, 0.14, 12),
+    new THREE.MeshStandardMaterial({ color: 0xbfe8e0, transparent: true, opacity: 0.55, roughness: 0.1, metalness: 0.1 })
+  );
+  glass.position.set(0.02, -0.36, 0.02);
+  glass.visible = false;
+  proc.armR.add(glass);
 }
 
 async function buildCharacter(a) {
-  spriteCfg = a.sprite_config;
-  spriteTex = await buildSpriteTexture(a.atlas.url, spriteCfg);
-  sprite = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.8, 1.8),
-    new THREE.MeshBasicMaterial({ map: spriteTex, transparent: true, depthWrite: false })
-  );
+  charGroup = new THREE.Group();
+  rigRoot = new THREE.Group();
+  charGroup.add(rigRoot);
+  scene.add(charGroup);
   charPos = new THREE.Vector3(3.6, 0, 0.4);
-  sprite.position.set(charPos.x, 0.9, charPos.z);
-  scene.add(sprite);
+
+  if (a.model) {
+    statusEl.textContent = "加载 3D 模型…";
+    try {
+      const res = await loadGLB(a.model.url);
+      rigRoot.add(res.root);
+      if (res.animations.length) {
+        glbMixer = new THREE.AnimationMixer(res.root);
+        glbMixer.clipAction(res.animations[0]).play();
+      }
+      charKind = "glb";
+      listEl.appendChild(item("3D 角色模型（W7 · TripoSR）", a.model.filename));
+    } catch (err) {
+      statusEl.textContent = "3D 模型加载失败，使用内置酒保: " + err.message;
+      buildProcedural();
+    }
+  } else {
+    buildProcedural();
+    listEl.appendChild(item("3D 角色（内置低模酒保）", "procedural"));
+  }
 
   shadow = new THREE.Mesh(
     new THREE.CircleGeometry(0.55, 24),
     new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false })
   );
   shadow.rotation.x = -Math.PI / 2;
+  shadow.position.set(charPos.x, 0.02, charPos.z);
   scene.add(shadow);
-
-  setInterval(() => {
-    if (!spriteTex) return;
-    frameIdx = (frameIdx + 1) % spriteCfg.frames;
-    setSpriteFrame();
-  }, frameMs);
-  listEl.appendChild(item("角色序列帧", a.atlas.filename));
 }
 
-/* ---------------- 剧本：酒保在酒吧里干什么 ---------------- */
+/* ---------------- 自动演出：3D 角色在 3D 酒吧里喝酒 ---------------- */
 const ACTION_TEXT = {
   walk: "正在走向…",
-  wipe: "正在擦洗…",
-  idle: "在吧台后待机",
+  drink: "正在喝酒…",
+  idle: "站在吧台前",
 };
 const SCRIPT = [
-  { action: "wipe", at: { x: 3.6, z: 0.4 }, dur: 6, text: "酒保在吧台后擦洗玻璃杯" },
-  { action: "walk", to: { x: 1.3, z: -0.6 }, text: "从吧台走出来" },
-  { action: "walk", to: { x: -1.6, z: -1.5 }, text: "走向 1 号桌" },
-  { action: "wipe", at: { x: -1.6, z: -1.5 }, dur: 5, text: "收拾 1 号桌的酒杯" },
-  { action: "walk", to: { x: -1.6, z: 0.8 }, text: "走向 2 号桌" },
-  { action: "wipe", at: { x: -1.6, z: 0.8 }, dur: 5, text: "擦 2 号桌台面" },
-  { action: "walk", to: { x: 3.6, z: 0.4 }, text: "回到吧台" },
-  { action: "idle", at: { x: 3.6, z: 0.4 }, dur: 8, text: "在吧台后待机，等待打烊" },
+  { action: "walk", to: { x: 3.3, z: 0.4 }, text: "走进酒吧，来到吧台" },
+  { action: "drink", dur: 6, text: "在吧台端起酒杯喝一杯" },
+  { action: "walk", to: { x: -1.4, z: -1.2 }, text: "端着酒杯走向 1 号桌" },
+  { action: "drink", dur: 5, text: "在桌边小酌" },
+  { action: "walk", to: { x: 3.3, z: 0.4 }, text: "回到吧台" },
+  { action: "drink", dur: 4, text: "再添一杯" },
+  { action: "idle", at: { x: 3.3, z: 0.4 }, dur: 8, text: "靠在吧台，听音乐等打烊" },
 ];
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+async function drinkOnce() {
+  const t0 = performance.now();
+  // 举杯
+  while (performance.now() - t0 < 1400) {
+    drinkT = (performance.now() - t0) / 1400;
+    await sleep(16);
+  }
+  drinkT = 1;
+  await sleep(1200);
+  // 放下
+  while (performance.now() - t0 < 2400) {
+    drinkT = 1 - (performance.now() - t0 - 1400 - 1000) / 1000;
+    await sleep(16);
+  }
+  drinkT = 0;
+}
 
 async function startScript() {
   await sleep(500);
@@ -344,12 +467,15 @@ async function startScript() {
       actionEl.textContent = step.text || ACTION_TEXT[step.action] || "";
       if (step.action === "walk") {
         state = "walk";
-        frameMs = spriteCfg ? spriteCfg.frame_duration_ms : 80;
         charTarget = step.to;
         await new Promise((res) => { walkResolve = res; });
+      } else if (step.action === "drink") {
+        state = "drink";
+        if (clink) { clink.currentTime = 0; clink.play().catch(() => {}); }
+        await drinkOnce();
+        await sleep(Math.max(0, (step.dur - 3.4) * 1000));
       } else {
         state = step.action;
-        frameMs = spriteCfg ? Math.round(spriteCfg.frame_duration_ms * 2.4) : 200;
         await sleep(step.dur * 1000);
       }
     }
@@ -393,11 +519,7 @@ async function buildScene(a) {
   scene.add(dir);
 
   buildRoom(a);
-  if (a.atlas && a.sprite_config) {
-    await buildCharacter(a);
-  } else {
-    statusEl.textContent = "该批次缺少角色图集，仅展示环境";
-  }
+  await buildCharacter(a);
   setupAudio(a);
   assetsEl.textContent = `共 ${listEl.children.length} 项资产`;
   soundBtn.classList.remove("hidden");

@@ -205,7 +205,7 @@ function showDetail(job) {
     }
     if (job.batch) {
       const sb = encodeURIComponent(job.batch);
-      preview.innerHTML += `<br><a class="scene-btn" href="/scene.html?batch=${sb}">进入 3D 场景 →</a> <a class="scene-btn" href="/scene2d.html?batch=${sb}">进入 2D 场景 →</a>`;
+      preview.innerHTML += `<br><a class="scene-btn" href="/scene.html?batch=${sb}">进入 3D 场景 →</a>`;
     }
   } else {
     preview.innerHTML = "";

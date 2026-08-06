@@ -166,11 +166,6 @@ def scene_page():
     return FileResponse(WEB_DIR / "scene.html")
 
 
-@app.get("/scene2d.html")
-def scene2d_page():
-    return FileResponse(WEB_DIR / "scene2d.html")
-
-
 def _load_template(name: str) -> dict:
     path = WORKFLOWS_DIR / TEMPLATE_FILES.get(name, f"{name}.json")
     if not path.exists():
