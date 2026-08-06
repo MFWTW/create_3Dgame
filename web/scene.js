@@ -41,6 +41,7 @@ function init() {
   renderer.setSize(innerWidth, innerHeight);
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.shadowMap.enabled = false;
+  renderer.outputEncoding = THREE.sRGBEncoding;
   document.getElementById("canvas-wrap").appendChild(renderer.domElement);
   controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
@@ -65,24 +66,35 @@ function animate() {
 
 function buildScene(a) {
   const loader = new THREE.TextureLoader();
-  const tex = (u) => (u ? loader.load(u.url) : null);
+  const tex = (u) => {
+    if (!u) return null;
+    const t = loader.load(u.url, undefined, undefined, () => {
+      statusEl.textContent = "纹理加载失败: " + u.url;
+    });
+    t.encoding = THREE.sRGBEncoding;
+    return t;
+  };
 
-  // 灯光
-  scene.add(new THREE.AmbientLight(0x2a3444, 0.55));
-  const dir = new THREE.DirectionalLight(0x9fb8ff, 0.55);
-  dir.position.set(3, 6, 4);
+  // 灯光（增强，避免环境全黑）
+  scene.add(new THREE.HemisphereLight(0x8899bb, 0x332211, 1.0));
+  scene.add(new THREE.AmbientLight(0x556677, 0.8));
+  const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+  dir.position.set(4, 8, 6);
   scene.add(dir);
-  const neon1 = new THREE.PointLight(0xff8844, 1.4, 14);
+  const neon1 = new THREE.PointLight(0xff8844, 1.8, 16);
   neon1.position.set(2.2, 2.4, 2.0);
   scene.add(neon1);
-  const neon2 = new THREE.PointLight(0x44ccff, 0.7, 12);
+  const neon2 = new THREE.PointLight(0x44ccff, 1.2, 14);
   neon2.position.set(-2.5, 2.0, -0.5);
   scene.add(neon2);
+  const neon3 = new THREE.PointLight(0xffaa55, 0.9, 12);
+  neon3.position.set(0, 3.2, 1.8);
+  scene.add(neon3);
 
   // 地面（垫在场景下方）
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(16, 10),
-    new THREE.MeshStandardMaterial({ color: 0x14160f, roughness: 0.95, metalness: 0.1 })
+    new THREE.MeshStandardMaterial({ color: 0x2a2c20, roughness: 0.95, metalness: 0.05 })
   );
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = -2.05;
@@ -94,13 +106,11 @@ function buildScene(a) {
     const mat = new THREE.MeshStandardMaterial({
       map: tex(a.concept),
       displacementMap: tex(a.depth),
-      displacementScale: a.depth ? -1.25 : 0,
+      displacementScale: a.depth ? -1.1 : 0,
       displacementBias: 0,
       normalMap: tex(a.materials && a.materials.normal),
-      roughnessMap: tex(a.materials && a.materials.roughness),
-      metalnessMap: tex(a.materials && a.materials.metalness),
-      roughness: 0.9,
-      metalness: 0.25,
+      roughness: 0.85,
+      metalness: 0.15,
       side: THREE.DoubleSide,
     });
     const mesh = new THREE.Mesh(geo, mat);

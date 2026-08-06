@@ -26,3 +26,10 @@ def get_history(prompt_id: str):
 
 def view_url(filename: str, subfolder: str = "", type_: str = "output") -> str:
     return f"{COMFY_URL}/view?filename={quote(filename)}&subfolder={quote(subfolder)}&type={type_}"
+
+
+def fetch_file(filename: str, subfolder: str = "", type_: str = "output") -> bytes:
+    """代理下载 ComfyUI 输出文件（浏览器不再直接访问 8188）"""
+    resp = httpx.get(view_url(filename, subfolder, type_), timeout=120.0)
+    resp.raise_for_status()
+    return resp.content

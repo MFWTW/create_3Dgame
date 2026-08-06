@@ -8,7 +8,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import comfy, db, translator
@@ -103,6 +103,22 @@ WORKFLOW_META = {
 }
 
 FRAME_DURATIONS = {"run": 80, "attack": 110, "idle": 160}
+
+MIME_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".mp3": "audio/mpeg",
+    ".flac": "audio/flac",
+    ".opus": "audio/ogg",
+    ".wav": "audio/wav",
+    ".json": "application/json",
+}
+
+
+def _media_type(filename: str) -> str:
+    return MIME_TYPES.get(Path(filename).suffix.lower(), "application/octet-stream")
 
 
 # 需要自动中→英翻译的提示词字段
@@ -449,6 +465,7 @@ def sprite_config(job_id: str):
 
 @app.get("/api/jobs/{job_id}/file/{index}")
 def job_file(job_id: str, index: int):
+    """代理输出文件字节（图片/音频），浏览器只访问 8000，不直连 8188"""
     job = db.get_job(job_id)
     if job is None:
         raise HTTPException(404, "任务不存在")
@@ -456,13 +473,16 @@ def job_file(job_id: str, index: int):
     if index < 0 or index >= len(outputs):
         raise HTTPException(404, "输出不存在")
     out = outputs[index]
-    return RedirectResponse(
-        comfy.view_url(out["filename"], out.get("subfolder", ""), out.get("type", "output"))
-    )
+    try:
+        data = comfy.fetch_file(out["filename"], out.get("subfolder", ""), out.get("type", "output"))
+    except Exception as exc:
+        raise HTTPException(502, f"读取输出失败: {exc}")
+    return Response(data, media_type=_media_type(out["filename"]))
 
 
 @app.get("/api/jobs/{job_id}/image")
 def job_image(job_id: str):
+    """第一个输出（兼容旧接口），同样走代理"""
     job = db.get_job(job_id)
     if job is None:
         raise HTTPException(404, "任务不存在")
@@ -470,9 +490,11 @@ def job_image(job_id: str):
     if not outputs:
         raise HTTPException(404, "任务还没有输出")
     first = outputs[0]
-    return RedirectResponse(
-        comfy.view_url(first["filename"], first.get("subfolder", ""), first.get("type", "output"))
-    )
+    try:
+        data = comfy.fetch_file(first["filename"], first.get("subfolder", ""), first.get("type", "output"))
+    except Exception as exc:
+        raise HTTPException(502, f"读取输出失败: {exc}")
+    return Response(data, media_type=_media_type(first["filename"]))
 
 
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
