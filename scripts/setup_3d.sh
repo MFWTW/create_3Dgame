@@ -19,5 +19,8 @@ fi
 echo "==> 安装依赖（omegaconf / trimesh / transformers 等）"
 "$VENV" -m pip install -r "$CUSTOM/ComfyUI-Flowty-TripoSR/requirements.txt"
 
+echo "==> 修正版本兼容（ComfyUI 需要 transformers>=4.50；numpy 2 需要 trimesh>=4.5）"
+"$VENV" -m pip install ${PIP_INDEX_URL:+-i "$PIP_INDEX_URL"} "transformers>=4.50.3" "trimesh>=4.5"
+
 echo "==> 完成。下一步下载模型: bash scripts/download_3d_model.sh"
 echo "    下载后重启 ComfyUI 即可在 W7 工作流中使用。"

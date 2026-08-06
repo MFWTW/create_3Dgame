@@ -213,7 +213,9 @@ def _collect_outputs(history: dict) -> list[dict]:
                     "kind": "audio",
                 }
             )
-        for mesh in node_output.get("ui", {}).get("mesh", []):
+        # 兼容新旧 ComfyUI：ui 可能位于顶层或 "ui" 键下
+        mesh_list = node_output.get("ui", {}).get("mesh", []) or node_output.get("mesh", [])
+        for mesh in mesh_list:
             outputs.append(
                 {
                     "filename": mesh["filename"],
