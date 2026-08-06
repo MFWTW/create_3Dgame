@@ -1,7 +1,8 @@
 /* 2D 横版场景：2D 侧视构图 + 真实 3D 体积角色
    与 scene.js（2D 角色贴入 3D 场景）相反：
    - 场景：概念图平铺成 2D 背景，视差层次 + 剪影道具 + 地板渐变（纯 2D 视觉）
-   - 角色：序列帧抠像后按 9 层「卡片」沿 Z 堆叠，构成有厚度的 3D 体积；
+   - 角色：序列帧抠像后按 9 层「卡片」沿 Z 堆叠（最亮层靠前），
+     视差剪切 + 前脸浮雕位移，构成有厚度的 3D 体积；
      按帧切换贴图播放动画，A/D 或 ←/→ 移动、空格旋转查看立体、P 恢复自动演出 */
 const params = new URLSearchParams(location.search);
 const batch = params.get("batch") || "";
@@ -25,7 +26,7 @@ let webglOK = true;
 
 // 角色
 let charGroup = null, charCards = null, charTex = null, frameOffsets = null, charCfg = null;
-let charX = 0, charFacing = 1, yaw = 0, spinning = false;
+let charX = 0, charFacing = 1, yaw = BASE_YAW, spinning = false;
 let state = "idle", frameIdx = 0, frameAcc = 0;
 let targetX = null, walkResolve = null;
 let running = true, manualMode = false, scriptActive = false;
@@ -34,7 +35,7 @@ let mouse = { x: 0, y: 0 };
 
 // 环境
 let bgPlane = null, shadow = null;
-let dustPts = null;
+let dustPts = null, dustPuff = null, dustLife = null, dustTimer = 0;
 const parallaxLayers = [];
 
 const CHAR_H = 1.9;
@@ -44,6 +45,8 @@ const CARD_DEPTH = 0.07;
 const WALK_SPEED = 1.7;
 const VIEW_H = 5.6;
 const X_LIMIT = 3.0;
+const BASE_YAW = 0.08;          // 静止时的轻微转角，让厚度可见
+const DUST_POOL = 24;           // 脚步扬尘粒子池
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 let lastT = performance.now();
@@ -142,6 +145,7 @@ function animate() {
   updateParallax();
   updateDust(dt);
   if (charGroup) updateCharacter(dt, now);
+  updateDustPuff(dt);
   renderer.render(scene, camera);
 }
 
@@ -200,13 +204,72 @@ function updateCharacter(dt, now) {
   charTex.repeat.set(fo.repeatX, fo.repeatY);
 
   if (spinning) yaw += dt * 1.9;
-  const bob = state === "walk" ? Math.abs(Math.sin(now * 0.011)) * 0.045 : 0;
+  const walkPhase = now * 0.011;
+  const moving = state === "walk";
+  const breathe = Math.sin(now * 0.0022);
+  const bob = moving ? Math.abs(Math.sin(walkPhase)) * 0.05 : Math.abs(breathe) * 0.012;
+  const stretch = moving ? Math.sin(walkPhase * 2) : breathe;
+  const sy = 1 + stretch * (moving ? 0.05 : 0.008);
+  const sx = 1 - stretch * (moving ? 0.04 : 0.006);
+
+  // 卡片视差剪切：鼠标移动时各层沿 X 错开，产生真实纵深（深度剪影）
+  for (const card of charCards.children) {
+    const d = card.userData.depth;
+    if (d == null) continue;
+    card.position.x = d * (0.012 + mouse.x * 0.045);
+    card.position.y = d * 0.0015;
+  }
+
   charGroup.position.set(charX, bob, 0);
-  charCards.rotation.y = yaw;
-  charCards.scale.x = charFacing;
+  charCards.rotation.y = yaw + breathe * 0.02;
+  charCards.rotation.z = moving ? -charFacing * Math.sin(walkPhase) * 0.03 : 0;
+  charCards.scale.x = charFacing * sx;
+  charCards.scale.y = sy;
+
   shadow.position.set(charX, 0.02, 0);
-  const sh = 1 + bob * 1.8;
+  const sh = 1 + bob * 2.0;
   shadow.scale.set(sh, sh, 1);
+  shadow.material.opacity = 0.36 + bob * 0.8;
+
+  // 脚步扬尘
+  if (moving) {
+    dustTimer -= dt;
+    if (dustTimer <= 0 && dustPuff) {
+      dustTimer = 0.13;
+      spawnDust();
+    }
+  }
+}
+
+function spawnDust() {
+  const arr = dustPuff.geometry.attributes.position.array;
+  for (let i = 0; i < DUST_POOL; i++) {
+    if (dustLife[i] <= 0) {
+      dustLife[i] = 1;
+      arr[i * 3] = charX - charFacing * 0.16 + (Math.random() - 0.5) * 0.08;
+      arr[i * 3 + 1] = 0.05 + Math.random() * 0.04;
+      arr[i * 3 + 2] = (Math.random() - 0.5) * 0.1;
+      dustPuff.visible = true;
+      dustPuff.geometry.attributes.position.needsUpdate = true;
+      return;
+    }
+  }
+}
+
+function updateDustPuff(dt) {
+  if (!dustPuff) return;
+  const arr = dustPuff.geometry.attributes.position.array;
+  let any = false;
+  for (let i = 0; i < DUST_POOL; i++) {
+    if (dustLife[i] <= 0) continue;
+    dustLife[i] -= dt / 0.7;
+    if (dustLife[i] <= 0) { arr[i * 3 + 1] = -1; continue; }
+    any = true;
+    arr[i * 3] += (Math.random() - 0.5) * 0.004;
+    arr[i * 3 + 1] += dt * 0.18;
+  }
+  dustPuff.geometry.attributes.position.needsUpdate = true;
+  dustPuff.visible = any;
 }
 
 /* ---------------- 环境：纯 2D 侧视构图 ---------------- */
@@ -567,9 +630,25 @@ async function buildCharacter(a) {
       emissive: new THREE.Color().setHSL(0.075, 0.45, 0.045 - t * 0.02),
     });
     const card = new THREE.Mesh(geo, [edge, edge, edge, edge, cap, cap]);
-    card.position.z = (i - (CARD_COUNT - 1) / 2) * CARD_GAP;
+    // i=0 为最亮且最靠前（面向镜头），向后逐层变暗
+    card.position.z = ((CARD_COUNT - 1) / 2 - i) * CARD_GAP;
+    card.userData.depth = (CARD_COUNT - 1) / 2 - i;
     charCards.add(card);
   }
+
+  // 前脸浮雕：以精灵亮度为位移贴图，亮部鼓起，转动时能看到真实曲面而非平面贴图
+  const relGeo = new THREE.PlaneGeometry(gW, gH, 64, 80);
+  relGeo.translate(0, gH / 2, 0);
+  const relief = new THREE.Mesh(relGeo, new THREE.MeshBasicMaterial({
+    map: charTex,
+    displacementMap: charTex,
+    displacementScale: 0.10,
+    alphaTest: 0.5,
+    side: THREE.DoubleSide,
+  }));
+  relief.position.z = ((CARD_COUNT - 1) / 2) * CARD_GAP + CARD_DEPTH / 2 + 0.012;
+  relief.userData.depth = (CARD_COUNT - 1) / 2;
+  charCards.add(relief);
   charGroup.add(charCards);
   scene.add(charGroup);
 
@@ -580,6 +659,16 @@ async function buildCharacter(a) {
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.set(0, 0.02, 0);
   scene.add(shadow);
+
+  // 脚步扬尘粒子池
+  const dustGeo = new THREE.BufferGeometry();
+  dustGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(DUST_POOL * 3), 3));
+  dustLife = new Float32Array(DUST_POOL);
+  dustPuff = new THREE.Points(dustGeo, new THREE.PointsMaterial({
+    color: 0xbbaa88, size: 0.03, transparent: true, opacity: 0.5, depthWrite: false,
+  }));
+  dustPuff.visible = false;
+  scene.add(dustPuff);
 
   const fo = frameOffsets[0];
   charTex.offset.set(fo.offsetX, fo.offsetY);
