@@ -81,7 +81,7 @@
 | W3 | 3D 贴图材质 | W2 深度图 | normal / height / roughness / metalness 贴图集 | 自定义节点 PBRFromDepth：深度图→法线+高度+粗糙度+金属度（可调参数） |
 | W4 | 背景音乐 | 音乐风格描述 | MP3（MusicGen small） | 自定义节点 MusicGenNode（transformers MusicGen），可调 prompt/时长/seed |
 | W5 | 环境音效 | 音效类型 | MP3 循环/触发音效 | 自定义节点 ProceduralSFX：玻璃杯碰撞 / 含糊交谈 / 酒吧环境音（程序化合成） |
-| W6 | 序列帧图集 | 角色设定图 + 动作指令 | PNG 图集 + JSON 配置（帧坐标、时长） | ControlNet OpenPose 逐帧生成（固定 seed + 动作 LoRA 保一致性）；或 AnimateDiff 生成动作视频后抽帧；ImageGrid 拼图 |
+| W6 | 序列帧图集 | 角色设定图 + 动作指令 | PNG 图集 + JSON 配置（帧尺寸/网格/时长） | 自定义节点 ActionPose 生成动作骨架帧 → ControlNet OpenPose (SDXL) 逐帧 img2img → ImageGrid 拼图；JSON 由后端生成 |
 
 ### 各工作流的工程要点
 
@@ -184,7 +184,7 @@ nginx     （统一入口、HTTPS、静态缓存）
 | P1 | 本地 ComfyUI 安装，跑通 W1、W2 | 文本→概念图→深度图可用 |
 | P2 ✅ | 后端 API + 前端页面（任务提交/进度/预览） | 网页能提交 W1/W2 任务并取回结果 |
 | P3 ✅ | W3 材质 + W4 音乐 + W5 音效接入 | 三类资产可从网页生成下载 |
-| P4 | W6 序列帧图集 | 跑步/攻击动作图集 + JSON 可下载 |
+| P4 ✅ | W6 序列帧图集 | 跑步/攻击动作图集 + JSON 可下载 |
 | P5 | 部署上线 + 文档完善 | 公网可访问，README 覆盖部署细节 |
 
 ---
@@ -269,3 +269,9 @@ bash server/run.sh
 - W3 材质、W4 音乐、W5 音效已接入网页（`http://localhost:8000`）
 - MusicGen small 模型已下载到 `ComfyUI/models/musicgen/`（重新部署用 `scripts/download_musicgen.sh`）
 - 自定义节点源码在 `nodes/indie_studio_nodes/`（PBRFromDepth / MusicGenNode / ProceduralSFX）
+
+### P4：序列帧图集（当前进度）
+
+- W6 已接入网页：上传角色设定图 → 选动作（run/attack）→ 生成 8 帧图集 + JSON 配置
+- ControlNet OpenPose SDXL 模型已下载（`ComfyUI/models/controlnet/OpenPoseXL2.safetensors`）
+- JSON 配置接口：`GET /api/jobs/{id}/sprite-config`（帧尺寸/网格/每帧时长）

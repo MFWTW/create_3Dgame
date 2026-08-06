@@ -14,6 +14,13 @@ const DEFAULTS = {
     seed: () => Math.floor(Math.random() * 1e9),
   },
   W5: { kind: "glass_clink", duration: 4.0, seed: () => Math.floor(Math.random() * 1e9) },
+  W6: {
+    text: "full body 2d game character sprite, side view, running action pose, clean background, cel shading, game asset, consistent character design",
+    negative: "blurry, low quality, deformed, watermark, text, multiple characters, extra limbs",
+    action: "run", frames: 8, width: 512, height: 512,
+    seed: () => Math.floor(Math.random() * 1e9),
+    steps: 20, cfg: 7, denoise: 0.55, strength: 0.85,
+  },
 };
 
 const FIELD_LABELS = {
@@ -23,13 +30,15 @@ const FIELD_LABELS = {
   width: "宽度", height: "高度",
   seed: "随机种子", steps: "采样步数", cfg: "CFG",
   resolution: "深度图分辨率",
-  strength: "法线强度", roughness_scale: "粗糙度系数", metalness: "金属度",
+  strength: "法线强度 / 姿态强度", roughness_scale: "粗糙度系数", metalness: "金属度",
   duration: "时长（秒）",
   kind: "音效类型",
+  action: "动作指令", frames: "帧数", denoise: "重绘强度",
 };
 
 const SELECT_OPTIONS = {
   kind: ["glass_clink", "murmur", "ambient_bar"],
+  action: ["run", "attack"],
 };
 
 let workflows = [];
@@ -94,7 +103,7 @@ function renderFields() {
       input.type = "number";
       const v = DEFAULTS[currentWorkflow][key];
       input.value = typeof v === "function" ? v() : v;
-      input.step = ["cfg", "strength", "roughness_scale", "metalness", "duration"].includes(key) ? "0.1" : "1";
+      input.step = ["cfg", "strength", "roughness_scale", "metalness", "duration", "denoise"].includes(key) ? "0.1" : "1";
     }
     input.name = key;
     fields.appendChild(input);
@@ -155,6 +164,9 @@ function showDetail(job) {
       }
       return `<img src="${url}" alt="result"><br><a href="${url}" download>${label}</a>`;
     }).join("<br>");
+    if (job.workflow === "W6" && job.status === "done") {
+      preview.innerHTML += `<br><a href="/api/jobs/${job.id}/sprite-config" download="sprite_config.json">下载 JSON 图集配置</a>`;
+    }
   } else {
     preview.innerHTML = "";
   }

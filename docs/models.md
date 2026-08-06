@@ -26,7 +26,7 @@ Depth Anything V2 精度更高，但 hf-mirror 暂未镜像该仓库，
 | P3 | 3D 材质（深度→法线） | 基于 W2 深度图程序化生成，无需新模型 | — |
 | P3 | 背景音乐 | MusicGen small（已下载，`ComfyUI/models/musicgen/`） | 2.3 GB |
 | P3 | 环境音效 | 程序化合成，无需模型；可加音效库 | — |
-| P4 | 序列帧姿态控制 | ControlNet OpenPose (SDXL / SD1.5) | ~2.5 GB |
+| P4 | 序列帧姿态控制 | ControlNet OpenPose SDXL（已下载，`OpenPoseXL2.safetensors`） | 5.0 GB |
 | P4 | 动作一致性 | 动作 LoRA（按角色风格选用） | 数十 MB |
 
 ## 下载方式

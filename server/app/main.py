@@ -1,7 +1,8 @@
-"""独立游戏 AI 资产生成平台 - 后端 API（P2/P3）"""
+"""独立游戏 AI 资产生成平台 - 后端 API（P2/P3/P4）"""
 import json
 import shutil
 from contextlib import asynccontextmanager
+from math import ceil
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -23,9 +24,10 @@ TEMPLATE_FILES = {
     "W3": "W3_material.json",
     "W4": "W4_music.json",
     "W5": "W5_sfx.json",
+    "W6": "W6_sprite.json",
 }
 
-# 每个工作流允许从网页覆盖的参数 → (节点id, 输入名)
+# 每个工作流允许从网页覆盖的参数 → (节点id, 输入名) 或 [(节点id, 输入名), ...]
 PARAM_MAP = {
     "W1": {
         "text": ("2", "text"),
@@ -45,6 +47,19 @@ PARAM_MAP = {
     },
     "W4": {"prompt": ("20", "prompt"), "duration": ("20", "duration"), "seed": ("20", "seed")},
     "W5": {"kind": ("22", "kind"), "duration": ("22", "duration"), "seed": ("22", "seed")},
+    "W6": {
+        "text": ("2", "text"),
+        "negative": ("3", "text"),
+        "action": ("32", "action"),
+        "frames": [("32", "frames"), ("36", "amount")],
+        "width": [("35", "width"), ("32", "width")],
+        "height": [("35", "height"), ("32", "height")],
+        "seed": ("5", "seed"),
+        "steps": ("5", "steps"),
+        "cfg": ("5", "cfg"),
+        "denoise": ("5", "denoise"),
+        "strength": ("34", "strength"),
+    },
 }
 
 WORKFLOW_META = {
@@ -78,7 +93,15 @@ WORKFLOW_META = {
         "inputs": ["kind", "duration", "seed"],
         "accepts_image": False,
     },
+    "W6": {
+        "title": "W6 · 序列帧图集",
+        "description": "角色设定图 + 动作指令 → 帧图集 + JSON 配置",
+        "inputs": ["text", "negative", "action", "frames", "width", "height", "seed", "steps", "cfg", "denoise", "strength"],
+        "accepts_image": True,
+    },
 }
+
+FRAME_DURATIONS = {"run": 80, "attack": 110, "idle": 160}
 
 
 @asynccontextmanager
@@ -88,7 +111,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Indie Game Asset Studio", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="Indie Game Asset Studio", version="0.4.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -111,16 +134,17 @@ def _load_template(name: str) -> dict:
 
 def _apply_params(workflow: dict, name: str, params: dict, job_id: str) -> dict:
     for key, value in params.items():
-        if key not in PARAM_MAP.get(name, {}):
+        targets = PARAM_MAP.get(name, {}).get(key)
+        if targets is None:
             continue
-        node_id, input_name = PARAM_MAP[name][key]
-        if node_id in workflow:
-            workflow[node_id]["inputs"][input_name] = value
+        if not isinstance(targets, list):
+            targets = [targets]
+        for node_id, input_name in targets:
+            if node_id in workflow:
+                workflow[node_id]["inputs"][input_name] = value
     # 输出文件名带上 job_id，方便定位
     for node in workflow.values():
-        if node["class_type"] == "SaveImage":
-            node["inputs"]["filename_prefix"] = f"{name}_{job_id}"
-        elif node["class_type"] == "SaveAudioAdvanced":
+        if node["class_type"] in ("SaveImage", "SaveAudioAdvanced"):
             node["inputs"]["filename_prefix"] = f"{name}_{job_id}"
     return workflow
 
@@ -235,6 +259,32 @@ def job_outputs(job_id: str):
     if job is None:
         raise HTTPException(404, "任务不存在")
     return job.get("outputs", [])
+
+
+@app.get("/api/jobs/{job_id}/sprite-config")
+def sprite_config(job_id: str):
+    job = db.get_job(job_id)
+    if job is None:
+        raise HTTPException(404, "任务不存在")
+    if job["workflow"] != "W6":
+        raise HTTPException(400, "仅 W6 序列帧任务有图集配置")
+    p = job["params"]
+    frames = max(1, int(p.get("frames", 8)))
+    width = int(p.get("width", 512))
+    height = int(p.get("height", 512))
+    action = p.get("action", "run")
+    columns = min(4, frames)
+    rows = ceil(frames / columns)
+    return {
+        "action": action,
+        "frames": frames,
+        "frame_width": width,
+        "frame_height": height,
+        "columns": columns,
+        "rows": rows,
+        "frame_duration_ms": FRAME_DURATIONS.get(action, 80),
+        "files": job.get("outputs", []),
+    }
 
 
 @app.get("/api/jobs/{job_id}/file/{index}")
