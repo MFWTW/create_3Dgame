@@ -91,6 +91,7 @@ function renderFields() {
     label.textContent = FIELD_LABELS[key] || key;
     fields.appendChild(label);
     let input;
+    let tbtn = null;
     if (SELECT_OPTIONS[key]) {
       input = document.createElement("select");
       SELECT_OPTIONS[key].forEach((opt) => {
@@ -103,12 +104,11 @@ function renderFields() {
       input = document.createElement("textarea");
       const v = DEFAULTS[currentWorkflow][key];
       input.value = typeof v === "function" ? v() : v;
-      const tbtn = document.createElement("button");
+      tbtn = document.createElement("button");
       tbtn.type = "button";
       tbtn.className = "ghost small translate-btn";
       tbtn.textContent = "中文→英文";
       tbtn.onclick = () => manualTranslate(key);
-      fields.appendChild(tbtn);
     } else {
       input = document.createElement("input");
       input.type = "number";
@@ -118,6 +118,7 @@ function renderFields() {
     }
     input.name = key;
     fields.appendChild(input);
+    if (tbtn) fields.appendChild(tbtn);
   });
 }
 

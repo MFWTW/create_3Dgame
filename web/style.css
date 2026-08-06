@@ -46,14 +46,15 @@ main {
   padding-bottom: 10px;
   margin-bottom: 14px;
 }
-#workflow-select { display: flex; gap: 8px; margin-bottom: 14px; }
+#workflow-select { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
 .workflow-option {
-  flex: 1;
+  width: 100%;
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 10px;
   cursor: pointer;
   background: #13160f;
+  overflow-wrap: anywhere;
 }
 .workflow-option.active { border-color: var(--accent); background: #1d2117; }
 .workflow-option strong { display: block; font-size: 13px; }
@@ -85,7 +86,7 @@ button {
 }
 button:disabled { opacity: .45; cursor: not-allowed; }
 .hidden { display: none; }
-#job-list { list-style: none; }
+#job-list { list-style: none; max-height: 42vh; overflow-y: auto; }
 #job-list li {
   padding: 10px 12px;
   border: 1px solid var(--line);
@@ -103,8 +104,11 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 #job-detail { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 14px; }
 #job-detail h3 { font-size: 14px; color: var(--accent); margin-bottom: 8px; }
 #detail-status { font-size: 13px; margin-bottom: 10px; }
+#detail-preview { overflow-wrap: anywhere; }
 #detail-preview img {
   max-width: 100%;
+  max-height: 340px;
+  object-fit: contain;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: #0b0d09;
