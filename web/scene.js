@@ -18,6 +18,7 @@ let sprite = null, spriteTex = null, spriteCfg = null;
 let shadow = null, charPos = null, charTarget = null, charFacing = 1;
 let walkResolve = null, frameIdx = 0, frameMs = 80;
 let dustPts = null;
+let webglOK = true;
 
 window.addEventListener("error", (e) => {
   statusEl.textContent = "脚本错误: " + (e.message || e.type);
@@ -52,7 +53,16 @@ function init() {
   scene.fog = new THREE.FogExp2(0x0b0d0a, 0.05);
   camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 100);
   camera.position.set(0, 1.9, 5.2);
-  renderer = new THREE.WebGLRenderer({ antialias: true });
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+  } catch (err) {
+    webglOK = false;
+    return;
+  }
+  if (!renderer.getContext()) {
+    webglOK = false;
+    return;
+  }
   renderer.setSize(innerWidth, innerHeight);
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.outputEncoding = THREE.sRGBEncoding;
@@ -369,6 +379,10 @@ function setupAudio(a) {
 }
 
 async function buildScene(a) {
+  if (!webglOK) {
+    await fallback2D(a);
+    return;
+  }
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0b0d0a);
   scene.fog = new THREE.FogExp2(0x0b0d0a, 0.05);
@@ -424,3 +438,127 @@ soundBtn.addEventListener("click", () => {
   if (soundOn) { stopAudio(); soundBtn.textContent = "音效开/关（当前关）"; }
   else { startAudio(); soundBtn.textContent = "音效开/关（当前开）"; }
 });
+
+/* ---------------- 2D 兼容模式（WebGL 不可用时自动启用） ---------------- */
+let fbCtx = null, fbCanvas = null, fbBg = null, fbAtlas = null, fbCfg = null;
+let fbMouse = { x: 0, y: 0 }, fbFrame = 0, fbFacing = 1, fbX = 0.8, fbTarget = null;
+const fbDust = Array.from({ length: 120 }, () => ({
+  x: Math.random(), y: Math.random() * 0.6, s: 0.4 + Math.random() * 0.6,
+}));
+
+function loadImg(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("图片加载失败: " + url));
+    img.src = url;
+  });
+}
+
+async function fallback2D(a) {
+  overlay.classList.add("hidden");
+  statusEl.textContent = "2D 兼容模式（当前环境不支持 WebGL）· 拖拽移动视角";
+  fbCanvas = document.createElement("canvas");
+  fbCanvas.style.width = "100%";
+  fbCanvas.style.height = "100%";
+  document.getElementById("canvas-wrap").appendChild(fbCanvas);
+  fbCtx = fbCanvas.getContext("2d");
+  fbCfg = a.sprite_config;
+  try {
+    if (a.concept) fbBg = await loadImg(a.concept.url);
+    if (a.atlas) fbAtlas = await loadImg(a.atlas.url);
+  } catch (err) {
+    statusEl.textContent = err.message;
+  }
+  addEventListener("mousemove", (e) => {
+    fbMouse.x = (e.clientX / innerWidth - 0.5) * 2;
+    fbMouse.y = (e.clientY / innerHeight - 0.5) * 2;
+  });
+  setupAudio(a);
+  assetsEl.textContent = `共 ${listEl.children.length} 项资产`;
+  soundBtn.classList.remove("hidden");
+  fbLoop();
+  fbScript();
+}
+
+function fbLoop() {
+  const ctx = fbCtx, w = (fbCanvas.width = innerWidth), h = (fbCanvas.height = innerHeight);
+  ctx.fillStyle = "#0b0d0a";
+  ctx.fillRect(0, 0, w, h);
+  // 背景图视差（覆盖式）
+  if (fbBg) {
+    const k = Math.max(w / fbBg.width, h / fbBg.height) * 1.08;
+    const bw = fbBg.width * k, bh = fbBg.height * k;
+    const ox = -(fbMouse.x * 22 + 10) + (w - bw) / 2;
+    const oy = -(fbMouse.y * 14 + 8) + (h - bh) / 2;
+    ctx.drawImage(fbBg, ox, oy, bw, bh);
+    const grd = ctx.createLinearGradient(0, h * 0.55, 0, h);
+    grd.addColorStop(0, "rgba(8,10,7,0)");
+    grd.addColorStop(1, "rgba(8,10,7,0.85)");
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, h * 0.55, w, h * 0.45);
+  } else {
+    ctx.fillStyle = "#14160f";
+    ctx.fillRect(0, 0, w, h);
+  }
+  // 灰尘
+  ctx.fillStyle = "rgba(204,187,153,0.5)";
+  fbDust.forEach((d) => {
+    d.y -= 0.00018 * d.s;
+    if (d.y < -0.02) d.y = 1.02;
+    ctx.beginPath();
+    ctx.arc(d.x * w, d.y * h, 1.2 * d.s, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  // 角色（贴地 + 阴影）
+  if (fbAtlas && fbCfg) {
+    const cx = (fbX * 0.7 + 0.15) * w;
+    const groundY = h * 0.82;
+    const ch = h * 0.42, cw = ch;
+    ctx.fillStyle = "rgba(0,0,0,0.4)";
+    ctx.beginPath();
+    ctx.ellipse(cx, groundY + ch * 0.02, cw * 0.28, cw * 0.06, 0, 0, Math.PI * 2);
+    ctx.fill();
+    const row = Math.floor(fbFrame / fbCfg.columns);
+    const col = fbFrame % fbCfg.columns;
+    const cellW = fbAtlas.width / fbCfg.columns;
+    const cellH = fbAtlas.height / fbCfg.rows;
+    ctx.save();
+    ctx.translate(cx, groundY);
+    ctx.scale(fbFacing, 1);
+    ctx.drawImage(fbAtlas, col * cellW, row * cellH, cellW, cellH, -cw / 2, -ch, cw, ch);
+    ctx.restore();
+  }
+  requestAnimationFrame(fbLoop);
+}
+
+function fbScript() {
+  const way = [
+    { x: 0.88, dur: 6000, text: "酒保在吧台后擦洗玻璃杯" },
+    { x: 0.58, dur: 2600, text: "从吧台走出来" },
+    { x: 0.24, dur: 2600, text: "走向 1 号桌" },
+    { x: 0.24, dur: 5000, text: "收拾 1 号桌的酒杯" },
+    { x: 0.24, dur: 1, text: "" },
+    { x: 0.42, dur: 2600, text: "走向 2 号桌" },
+    { x: 0.42, dur: 5000, text: "擦 2 号桌台面" },
+    { x: 0.88, dur: 2600, text: "回到吧台" },
+    { x: 0.88, dur: 8000, text: "在吧台后待机，等待打烊" },
+  ];
+  let i = 0;
+  setInterval(() => {
+    const step = way[i];
+    actionEl.textContent = step.text || "";
+    fbTarget = step.x;
+    fbFacing = step.x > fbX ? 1 : -1;
+    const steps = Math.max(1, Math.round(step.dur / 60));
+    let moved = 0;
+    const timer = setInterval(() => {
+      moved++;
+      const t = moved / steps;
+      fbX = fbTarget - (fbTarget - (i === 0 ? 0.88 : fbX)) * (1 - t);
+      if (moved >= steps) clearInterval(timer);
+    }, 16);
+    i = (i + 1) % way.length;
+    if (fbCfg) fbFrame = (fbFrame + 1) % fbCfg.frames;
+  }, 100);
+}
