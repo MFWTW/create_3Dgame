@@ -27,18 +27,22 @@ def init_db() -> None:
                 prompt_id TEXT,
                 outputs TEXT,
                 error TEXT,
-                created_at REAL NOT NULL
+                created_at REAL NOT NULL,
+                batch TEXT DEFAULT ''
             )
             """
         )
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(jobs)")]
+        if "batch" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN batch TEXT DEFAULT ''")
 
 
-def create_job(workflow: str, params: dict) -> str:
+def create_job(workflow: str, params: dict, batch: str = "") -> str:
     job_id = uuid.uuid4().hex[:12]
     with _conn() as conn:
         conn.execute(
-            "INSERT INTO jobs (id, workflow, status, params, created_at) VALUES (?, ?, ?, ?, ?)",
-            (job_id, workflow, "queued", json.dumps(params, ensure_ascii=False), time.time()),
+            "INSERT INTO jobs (id, workflow, status, params, created_at, batch) VALUES (?, ?, ?, ?, ?, ?)",
+            (job_id, workflow, "queued", json.dumps(params, ensure_ascii=False), time.time(), batch),
         )
     return job_id
 
@@ -60,9 +64,14 @@ def update_job(job_id: str, **fields) -> None:
         conn.execute(f"UPDATE jobs SET {sets} WHERE id = ?", (*fields.values(), job_id))
 
 
-def list_jobs(limit: int = 20):
+def list_jobs(limit: int = 20, batch: str = ""):
     with _conn() as conn:
-        rows = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+        if batch:
+            rows = conn.execute(
+                "SELECT * FROM jobs WHERE batch = ? ORDER BY created_at DESC LIMIT ?", (batch, limit)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
     jobs = []
     for row in rows:
         job = dict(row)

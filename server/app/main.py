@@ -1,6 +1,7 @@
 """独立游戏 AI 资产生成平台 - 后端 API（P2/P3/P4）"""
 import json
 import shutil
+import time
 from contextlib import asynccontextmanager
 from math import ceil
 from pathlib import Path
@@ -136,7 +137,7 @@ def _load_template(name: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _apply_params(workflow: dict, name: str, params: dict, job_id: str) -> dict:
+def _apply_params(workflow: dict, name: str, params: dict, batch: str) -> dict:
     for key, value in params.items():
         targets = PARAM_MAP.get(name, {}).get(key)
         if targets is None:
@@ -146,10 +147,12 @@ def _apply_params(workflow: dict, name: str, params: dict, job_id: str) -> dict:
         for node_id, input_name in targets:
             if node_id in workflow:
                 workflow[node_id]["inputs"][input_name] = value
-    # 输出文件名带上 job_id，方便定位
+    # 输出按「批次/可读标签」归档，例如 废土酒吧/W1_concept_00001_.png
     for node in workflow.values():
         if node["class_type"] in ("SaveImage", "SaveAudioAdvanced"):
-            node["inputs"]["filename_prefix"] = f"{name}_{job_id}"
+            label = node["inputs"].get("filename_prefix") or name
+            label = Path(label).name or name
+            node["inputs"]["filename_prefix"] = f"{batch}/{label}"
     return workflow
 
 
@@ -210,15 +213,27 @@ def list_workflows():
 
 @app.get("/api/files")
 def list_files(location: str = "input"):
-    """列出服务器上的图片文件（输入目录或输出目录），供前端选择"""
+    """列出服务器上的图片文件（输入目录或输出目录，输出目录含批次子文件夹）"""
     base = COMFY_INPUT_DIR if location == "input" else PROJECT_ROOT / "ComfyUI" / "output"
     if not base.exists():
         return []
     files = []
-    for p in base.iterdir():
-        if p.is_file() and p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}:
-            st = p.stat()
-            files.append({"name": p.name, "size": st.st_size, "mtime": st.st_mtime})
+    exts = {".png", ".jpg", ".jpeg", ".webp"}
+    if location == "input":
+        for p in base.iterdir():
+            if p.is_file() and p.suffix.lower() in exts:
+                st = p.stat()
+                files.append({"name": p.name, "size": st.st_size, "mtime": st.st_mtime})
+    else:
+        for sub in base.iterdir():
+            if sub.is_dir():
+                for p in sub.iterdir():
+                    if p.is_file() and p.suffix.lower() in exts:
+                        st = p.stat()
+                        files.append({"name": f"{sub.name}/{p.name}", "size": st.st_size, "mtime": st.st_mtime})
+            elif sub.is_file() and sub.suffix.lower() in exts:
+                st = sub.stat()
+                files.append({"name": sub.name, "size": st.st_size, "mtime": st.st_mtime})
     files.sort(key=lambda f: f["mtime"], reverse=True)
     return files
 
@@ -249,6 +264,7 @@ async def create_job(
     image: UploadFile | None = File(None),
     image_filename: str = Form(""),
     image_location: str = Form("input"),
+    batch: str = Form(""),
 ):
     if workflow not in WORKFLOW_META:
         raise HTTPException(404, "未知工作流")
@@ -265,7 +281,12 @@ async def create_job(
             except Exception:
                 pass
 
-    job_id = db.create_job(workflow, params)
+    # 批次名：留空按时间自动生成；去掉路径分隔符等危险字符
+    if not batch.strip():
+        batch = time.strftime("%Y%m%d_%H%M%S")
+    batch = "".join(c if c not in '/\\:*?"<>|' else "_" for c in batch.strip()) or "untitled"
+
+    job_id = db.create_job(workflow, params, batch)
     template = _load_template(workflow)
 
     # 图片来源一：上传新文件 → 保存到 ComfyUI/input
@@ -278,11 +299,14 @@ async def create_job(
     elif image_filename:
         safe = Path(image_filename).name
         if image_location == "output":
-            src = PROJECT_ROOT / "ComfyUI" / "output" / safe
+            out_root = (PROJECT_ROOT / "ComfyUI" / "output").resolve()
+            src = (out_root / image_filename.strip()).resolve()
+            if out_root not in src.parents:
+                raise HTTPException(400, "非法文件路径")
             if src.is_file():
-                shutil.copy2(src, COMFY_INPUT_DIR / safe)
+                shutil.copy2(src, COMFY_INPUT_DIR / src.name)
             else:
-                raise HTTPException(400, f"服务器输出目录不存在该图片: {safe}")
+                raise HTTPException(400, f"服务器输出目录不存在该图片: {image_filename}")
         if not (COMFY_INPUT_DIR / safe).is_file():
             raise HTTPException(400, f"服务器输入目录不存在该图片: {safe}")
         filename = safe
@@ -294,7 +318,7 @@ async def create_job(
             if node["class_type"] == "LoadImage":
                 node["inputs"]["image"] = filename
 
-    workflow_json = _apply_params(template, workflow, params, job_id)
+    workflow_json = _apply_params(template, workflow, params, batch)
     try:
         prompt_id = comfy.submit(workflow_json)
     except Exception as exc:
@@ -303,8 +327,8 @@ async def create_job(
     db.update_job(job_id, status="running", prompt_id=prompt_id)
     return db.get_job(job_id)
 @app.get("/api/jobs")
-def jobs_list(limit: int = 20):
-    return [_refresh_job(j) for j in db.list_jobs(limit)]
+def jobs_list(limit: int = 20, batch: str = ""):
+    return [_refresh_job(j) for j in db.list_jobs(limit, batch)]
 
 
 @app.get("/api/jobs/{job_id}")

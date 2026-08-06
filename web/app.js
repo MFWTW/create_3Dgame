@@ -137,6 +137,7 @@ async function submitJob(ev) {
   const fd = new FormData();
   fd.append("workflow", currentWorkflow);
   fd.append("params", JSON.stringify(params));
+  fd.append("batch", (document.getElementById("batch-name").value || "").trim());
   const fileInput = document.getElementById("image-file");
   const serverSel = document.getElementById("server-image");
   const serverChoice = serverSel ? serverSel.value : "";
@@ -182,7 +183,8 @@ function showDetail(job) {
     `${workflows.find((w) => w.name === job.workflow)?.title || job.workflow} · ${job.id}`;
   const status = document.getElementById("detail-status");
   const badge = `<span class="badge ${job.status}">${job.status}</span>`;
-  status.innerHTML = badge + (job.error ? `<br><span style="color:var(--err)">${job.error}</span>` : "");
+  const btag = job.batch ? `<div style="color:var(--dim);font-size:12px;margin-top:4px">批次：${job.batch}</div>` : "";
+  status.innerHTML = btag + badge + (job.error ? `<br><span style="color:var(--err)">${job.error}</span>` : "");
   const preview = document.getElementById("detail-preview");
   if (job.outputs && job.outputs.length) {
     preview.innerHTML = job.outputs.map((o, i) => {
@@ -260,7 +262,8 @@ async function refreshJobs() {
   jobs.forEach((job) => {
     const li = document.createElement("li");
     const name = workflows.find((w) => w.name === job.workflow)?.title || job.workflow;
-    li.innerHTML = `<span class="jid">#${job.id}</span> ${name} <span class="badge ${job.status}">${job.status}</span>`;
+    const btag = job.batch ? ` <span class="batch-tag">${job.batch}</span>` : "";
+    li.innerHTML = `<span class="jid">#${job.id}</span> ${name}${btag} <span class="badge ${job.status}">${job.status}</span>`;
     li.onclick = () => showDetail(job);
     list.appendChild(li);
   });

@@ -328,3 +328,12 @@ sudo ufw allow 80/tcp        # 推荐：只暴露 nginx 这一个端口
 2. `sudo certbot --nginx -d your-domain.com`（自动配证书）
 3. 放开 `deploy/nginx.conf` 中 443 server 注释并填写证书路径
 4. 重启 nginx：`docker compose restart nginx` 或 `sudo systemctl reload nginx`
+
+## 十一、批次与文件命名
+
+- 提交任务时可填「批次名称」（如：废土酒吧）；留空则自动按时间命名
+- 同一批次的输出自动归档到 `ComfyUI/output/<批次名>/`，文件名按工作流可读命名：
+  `W1_concept`（概念原画）、`W2_depth`（深度图）、`W3_normal/height/roughness/metalness`（材质）、
+  `W4_music`（音乐）、`W5_sfx`（音效）、`W6_frame/W6_atlas`（序列帧）
+- 任务列表与详情页显示批次；接口支持 `GET /api/jobs?batch=<批次名>` 按批次筛选
+- 网页「选择服务器已有图片」的输出目录下拉框也会按批次子文件夹分组显示

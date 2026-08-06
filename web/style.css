@@ -128,3 +128,5 @@ button.ghost { background: transparent; color: var(--accent); border: 1px solid 
 select:focus { outline: none; border-color: var(--accent); }
 
 button.small { padding: 5px 10px; font-size: 11px; margin-top: 6px; }
+
+.batch-tag { color: var(--accent); font-size: 11px; margin-left: 4px; }
