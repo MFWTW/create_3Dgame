@@ -22,7 +22,7 @@ let dustPts = null;
 let webglOK = true;
 let lastT = performance.now();
 let state = "idle";
-let drinkT = 0;
+let drinkT = 0, toastT = 0, rag = null;
 const CHAR_H = 1.9;
 const BASE_YAW = 0.08;
 
@@ -143,17 +143,32 @@ function updateCharacter(dt, now) {
 
   if (charKind === "proc" && proc) {
     const sw = Math.sin(walkPhase);
-    const drinking = state === "drink";
-    const raise = drinking ? smoothstep(drinkT) * 1.35 : 0;
-    proc.armR.rotation.x = -raise + (drinking ? 0 : -sw * (moving ? 0.55 : 0.05));
+    let armRX = -sw * (moving ? 0.55 : 0.05);
+    let armRZ = 0;
+    let glassVisible = false;
+    if (state === "drink") {
+      armRX = -smoothstep(drinkT) * 1.35;
+      armRZ = 0.12;
+      glassVisible = true;
+    } else if (state === "toast") {
+      armRX = -0.3;
+      armRZ = -0.9 * smoothstep(toastT);
+      glassVisible = true;
+    } else if (state === "wipe") {
+      armRX = -0.55;
+      armRZ = Math.sin(now * 0.004) * 0.7;
+    }
+    proc.armR.rotation.x = armRX;
+    proc.armR.rotation.z = armRZ;
     proc.armL.rotation.x = sw * (moving ? 0.55 : 0.05);
     proc.legL.rotation.x = -sw * (moving ? 0.48 : 0);
     proc.legR.rotation.x = sw * (moving ? 0.48 : 0);
     if (glass) {
-      glass.visible = true;
-      glass.rotation.x = drinking ? -0.45 : 0;
-      glass.rotation.z = drinking ? 0.15 : 0;
+      glass.visible = glassVisible;
+      glass.rotation.x = state === "drink" ? -0.45 : 0;
+      glass.rotation.z = state === "drink" ? 0.15 : 0;
     }
+    if (rag) rag.visible = state === "wipe";
   } else if (charKind === "glb") {
     if (glass) glass.visible = false;
     if (glbMixer) glbMixer.update(dt);
@@ -331,7 +346,7 @@ function loadGLB(url) {
 /* 内置低模酒保：未生成 W7 模型时演示「3D 角色在 3D 酒吧喝酒」 */
 function buildProcedural() {
   charKind = "proc";
-  const mat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8, metalness: 0.05 });
+  const mat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, metalness: 0.04 });
   const limb = (w, h, d, color, px, py) => {
     const pivot = new THREE.Group();
     pivot.position.set(px, py, 0);
@@ -342,41 +357,60 @@ function buildProcedural() {
     return pivot;
   };
   proc = {
-    legL: limb(0.16, 0.95, 0.18, 0x2f2b25, -0.11, 0.95),
-    legR: limb(0.16, 0.95, 0.18, 0x2f2b25, 0.11, 0.95),
-    armL: limb(0.12, 0.55, 0.13, 0xded6c6, -0.34, 1.52),
-    armR: limb(0.12, 0.55, 0.13, 0xded6c6, 0.34, 1.52),
+    legL: limb(0.16, 0.95, 0.18, 0x37312a, -0.11, 0.95),
+    legR: limb(0.16, 0.95, 0.18, 0x37312a, 0.11, 0.95),
+    armL: limb(0.12, 0.55, 0.13, 0x8d7b60, -0.34, 1.52),
+    armR: limb(0.12, 0.55, 0.13, 0x8d7b60, 0.34, 1.52),
   };
-  // 鞋
+  // 靴子（旧皮靴）
   for (const side of [-1, 1]) {
-    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.08, 0.26), mat(0x1d1a16));
+    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.08, 0.26), mat(0x241f19));
     shoe.position.set(0, 0.035, 0.04);
     (side < 0 ? proc.legL : proc.legR).add(shoe);
   }
-  // 躯干：衬衫 + 马甲 + 围裙 + 领结
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.58, 0.30), mat(0xe8e0d0));
+  // 躯干：脏衬衫 + 旧皮马甲
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.58, 0.30), mat(0x8d7b60));
   torso.position.y = 1.34;
   rigRoot.add(torso);
-  const vest = new THREE.Mesh(new THREE.BoxGeometry(0.50, 0.36, 0.34), mat(0x2b2620));
+  const vest = new THREE.Mesh(new THREE.BoxGeometry(0.50, 0.36, 0.34), mat(0x6b4526));
   vest.position.y = 1.24;
   rigRoot.add(vest);
-  const apron = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.36, 0.10), mat(0x6b4f33));
-  apron.position.set(0, 1.08, 0.16);
+  // 皮革腰带 + 金属扣
+  const belt = new THREE.Mesh(new THREE.BoxGeometry(0.50, 0.07, 0.34), mat(0x4a3422));
+  belt.position.y = 1.05;
+  rigRoot.add(belt);
+  const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.09, 0.36), mat(0x8a7a5a));
+  buckle.position.set(0, 1.05, 0.02);
+  rigRoot.add(buckle);
+  // 围裙（油渍深色）
+  const apron = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.38, 0.10), mat(0x5c4630));
+  apron.position.set(0, 1.06, 0.16);
   rigRoot.add(apron);
-  const bowtie = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.05, 0.06), mat(0x8f3f3f));
-  bowtie.position.set(0, 1.60, 0.15);
-  rigRoot.add(bowtie);
-  // 头 + 发
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 14), mat(0xc9a27e));
+  // 头巾（褪色红）
+  const bandana = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.09, 0.22), mat(0x7a2f2a));
+  bandana.position.set(0, 1.64, 0.02);
+  rigRoot.add(bandana);
+  // 头（风霜肤色）+ 短发
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 14), mat(0xb08a62));
   head.position.y = 1.80;
   rigRoot.add(head);
-  const hair = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 14), mat(0x241f1a));
+  const hair = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 14), mat(0x2a241d));
   hair.position.set(0, 1.87, -0.02);
   hair.scale.set(1.02, 0.7, 1.02);
   rigRoot.add(hair);
-  // 手 + 酒杯（握在右手）
+  // 额头护目镜（废土标配）
+  const strap = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.03, 0.05), mat(0x2c2a26));
+  strap.position.set(0, 1.88, 0.02);
+  rigRoot.add(strap);
+  for (const side of [-1, 1]) {
+    const gog = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.06, 10), mat(0x55524a));
+    gog.rotation.x = Math.PI / 2;
+    gog.position.set(side * 0.075, 1.87, 0.035);
+    rigRoot.add(gog);
+  }
+  // 手 + 酒杯（握在右手）+ 擦吧台抹布
   for (const a of [proc.armL, proc.armR]) {
-    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), mat(0xc9a27e));
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), mat(0xb08a62));
     hand.position.y = -0.32;
     a.add(hand);
   }
@@ -387,6 +421,19 @@ function buildProcedural() {
   glass.position.set(0.02, -0.36, 0.02);
   glass.visible = false;
   proc.armR.add(glass);
+  rag = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.06, 0.05), mat(0x9a927c));
+  rag.position.set(0.02, -0.36, 0.03);
+  rag.visible = false;
+  proc.armR.add(rag);
+
+  // 吧台和桌上的常驻酒杯
+  const glassMat = new THREE.MeshStandardMaterial({ color: 0xbfe8e0, transparent: true, opacity: 0.5, roughness: 0.12, metalness: 0.1 });
+  const barGlass = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.055, 0.14, 12), glassMat);
+  barGlass.position.set(3.5, 1.26, 0.3);
+  scene.add(barGlass);
+  const tableGlass = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.055, 0.14, 12), glassMat);
+  tableGlass.position.set(-1.6, 0.93, -1.5);
+  scene.add(tableGlass);
 }
 
 async function buildCharacter(a) {
@@ -429,19 +476,39 @@ async function buildCharacter(a) {
 const ACTION_TEXT = {
   walk: "正在走向…",
   drink: "正在喝酒…",
+  toast: "举杯致意…",
+  wipe: "正在擦吧台…",
   idle: "站在吧台前",
 };
 const SCRIPT = [
   { action: "walk", to: { x: 3.3, z: 0.4 }, text: "走进酒吧，来到吧台" },
   { action: "drink", dur: 6, text: "在吧台端起酒杯喝一杯" },
   { action: "walk", to: { x: -1.4, z: -1.2 }, text: "端着酒杯走向 1 号桌" },
-  { action: "drink", dur: 5, text: "在桌边小酌" },
+  { action: "toast", dur: 3, text: "举起酒杯，向四周致意" },
+  { action: "drink", dur: 4, text: "在桌边小酌" },
   { action: "walk", to: { x: 3.3, z: 0.4 }, text: "回到吧台" },
-  { action: "drink", dur: 4, text: "再添一杯" },
+  { action: "wipe", dur: 5, text: "放下酒杯，擦了擦吧台" },
   { action: "idle", at: { x: 3.3, z: 0.4 }, dur: 8, text: "靠在吧台，听音乐等打烊" },
 ];
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+async function toastOnce() {
+  const t0 = performance.now();
+  if (clink) { clink.currentTime = 0; clink.play().catch(() => {}); }
+  // 举杯致意 → 稍作停顿 → 放下
+  while (performance.now() - t0 < 900) {
+    toastT = (performance.now() - t0) / 900;
+    await sleep(16);
+  }
+  toastT = 1;
+  await sleep(1400);
+  while (performance.now() - t0 < 2200) {
+    toastT = 1 - (performance.now() - t0 - 900 - 1300) / 900;
+    await sleep(16);
+  }
+  toastT = 0;
+}
 
 async function drinkOnce() {
   const t0 = performance.now();
@@ -474,6 +541,10 @@ async function startScript() {
         if (clink) { clink.currentTime = 0; clink.play().catch(() => {}); }
         await drinkOnce();
         await sleep(Math.max(0, (step.dur - 3.4) * 1000));
+      } else if (step.action === "toast") {
+        state = "toast";
+        await toastOnce();
+        await sleep(Math.max(0, (step.dur - 2.2) * 1000));
       } else {
         state = step.action;
         await sleep(step.dur * 1000);
