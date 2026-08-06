@@ -19,6 +19,8 @@ let shadow = null, charPos = null, charTarget = null, charFacing = 1;
 let walkResolve = null, frameIdx = 0, frameMs = 80;
 let dustPts = null;
 let webglOK = true;
+let lastT = performance.now();
+let state = "idle";
 
 window.addEventListener("error", (e) => {
   statusEl.textContent = "脚本错误: " + (e.message || e.type);
@@ -82,7 +84,6 @@ function init() {
   animate();
 }
 
-let lastT = performance.now();
 function animate() {
   requestAnimationFrame(animate);
   const now = performance.now();
@@ -318,7 +319,6 @@ async function buildCharacter(a) {
 }
 
 /* ---------------- 剧本：酒保在酒吧里干什么 ---------------- */
-let state = "idle";
 const ACTION_TEXT = {
   walk: "正在走向…",
   wipe: "正在擦洗…",
