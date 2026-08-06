@@ -130,6 +130,11 @@ def index():
     return FileResponse(WEB_DIR / "index.html")
 
 
+@app.get("/scene.html")
+def scene_page():
+    return FileResponse(WEB_DIR / "scene.html")
+
+
 def _load_template(name: str) -> dict:
     path = WORKFLOWS_DIR / TEMPLATE_FILES.get(name, f"{name}.json")
     if not path.exists():
