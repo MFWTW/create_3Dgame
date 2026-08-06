@@ -10,7 +10,7 @@
 <header>
   <div class="brand">
     <h1>INDIEGEN<span>·</span>ASSET STUDIO</h1>
-    <p>独立游戏 AI 资产全链路生成 · P2</p>
+    <p>独立游戏 AI 资产全链路生成 · 已接入 6 个工作流</p>
   </div>
 </header>
 <main>
@@ -20,7 +20,12 @@
     <form id="job-form">
       <div id="dynamic-fields"></div>
       <div id="image-upload" class="hidden">
-        <label for="image-file">参考图（W2 深度图需要）</label>
+        <label for="server-image">选择服务器已有图片（输入/输出目录）</label>
+        <div class="row">
+          <select id="server-image"><option value="">— 上传新文件 —</option></select>
+          <button type="button" id="refresh-files" class="ghost">刷新</button>
+        </div>
+        <label for="image-file">或上传本地图片</label>
         <input type="file" id="image-file" accept="image/*">
       </div>
       <button type="submit" id="submit-btn" disabled>提交任务</button>

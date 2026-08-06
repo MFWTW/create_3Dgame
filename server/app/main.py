@@ -204,11 +204,28 @@ def list_workflows():
     return [{"name": k, **v} for k, v in WORKFLOW_META.items()]
 
 
+@app.get("/api/files")
+def list_files(location: str = "input"):
+    """列出服务器上的图片文件（输入目录或输出目录），供前端选择"""
+    base = COMFY_INPUT_DIR if location == "input" else PROJECT_ROOT / "ComfyUI" / "output"
+    if not base.exists():
+        return []
+    files = []
+    for p in base.iterdir():
+        if p.is_file() and p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}:
+            st = p.stat()
+            files.append({"name": p.name, "size": st.st_size, "mtime": st.st_mtime})
+    files.sort(key=lambda f: f["mtime"], reverse=True)
+    return files
+
+
 @app.post("/api/jobs")
 async def create_job(
     workflow: str = Form(...),
     params: str = Form("{}"),
     image: UploadFile | None = File(None),
+    image_filename: str = Form(""),
+    image_location: str = Form("input"),
 ):
     if workflow not in WORKFLOW_META:
         raise HTTPException(404, "未知工作流")
@@ -220,12 +237,28 @@ async def create_job(
     job_id = db.create_job(workflow, params)
     template = _load_template(workflow)
 
-    # 上传图片 → ComfyUI/input
+    # 图片来源一：上传新文件 → 保存到 ComfyUI/input
     if image is not None and image.filename:
         filename = f"{job_id}_{Path(image.filename).name}"
         dest = COMFY_INPUT_DIR / filename
         with dest.open("wb") as f:
             shutil.copyfileobj(image.file, f)
+    # 图片来源二：选择服务器已有图片（输出目录的会先复制到输入目录）
+    elif image_filename:
+        safe = Path(image_filename).name
+        if image_location == "output":
+            src = PROJECT_ROOT / "ComfyUI" / "output" / safe
+            if src.is_file():
+                shutil.copy2(src, COMFY_INPUT_DIR / safe)
+            else:
+                raise HTTPException(400, f"服务器输出目录不存在该图片: {safe}")
+        if not (COMFY_INPUT_DIR / safe).is_file():
+            raise HTTPException(400, f"服务器输入目录不存在该图片: {safe}")
+        filename = safe
+    else:
+        filename = None
+
+    if filename is not None:
         for node in template.values():
             if node["class_type"] == "LoadImage":
                 node["inputs"]["image"] = filename
@@ -238,8 +271,6 @@ async def create_job(
         raise HTTPException(502, f"提交 ComfyUI 失败: {exc}")
     db.update_job(job_id, status="running", prompt_id=prompt_id)
     return db.get_job(job_id)
-
-
 @app.get("/api/jobs")
 def jobs_list(limit: int = 20):
     return [_refresh_job(j) for j in db.list_jobs(limit)]

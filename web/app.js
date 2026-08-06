@@ -79,6 +79,9 @@ function renderFields() {
   fields.innerHTML = "";
   document.getElementById("image-upload").classList.toggle("hidden", !wf || !wf.accepts_image);
   document.getElementById("submit-btn").disabled = !wf;
+  const serverSel = document.getElementById("server-image");
+  if (serverSel) serverSel.value = "";
+  if (wf && wf.accepts_image) loadServerFiles();
   if (!wf) return;
 
   wf.inputs.forEach((key) => {
@@ -123,7 +126,21 @@ async function submitJob(ev) {
   fd.append("workflow", currentWorkflow);
   fd.append("params", JSON.stringify(params));
   const fileInput = document.getElementById("image-file");
-  if (fileInput.files.length) fd.append("image", fileInput.files[0]);
+  const serverSel = document.getElementById("server-image");
+  const serverChoice = serverSel ? serverSel.value : "";
+  if (serverChoice) {
+    const [loc, ...rest] = serverChoice.split("|");
+    fd.append("image_filename", rest.join("|"));
+    fd.append("image_location", loc);
+  } else if (fileInput.files.length) {
+    fd.append("image", fileInput.files[0]);
+  } else {
+    const wf = workflows.find((w) => w.name === currentWorkflow);
+    if (wf && wf.accepts_image) {
+      alert("请选择本地图片或服务器已有图片");
+      return;
+    }
+  }
   try {
     const job = await api("/api/jobs", { method: "POST", body: fd });
     refreshJobs();
@@ -173,6 +190,34 @@ function showDetail(job) {
   document.getElementById("detail-params").textContent = JSON.stringify(job.params, null, 2);
 }
 
+async function loadServerFiles() {
+  try {
+    const [inputFiles, outputFiles] = await Promise.all([
+      api("/api/files?location=input"),
+      api("/api/files?location=output"),
+    ]);
+    const sel = document.getElementById("server-image");
+    if (!sel) return;
+    const old = sel.value;
+    sel.innerHTML = '<option value="">— 上传新文件 —</option>';
+    const addGroup = (label, files, location) => {
+      if (!files.length) return;
+      const g = document.createElement("optgroup");
+      g.label = label;
+      files.forEach((f) => {
+        const o = document.createElement("option");
+        o.value = `${location}|${f.name}`;
+        o.textContent = `${f.name} (${(f.size / 1024).toFixed(0)} KB)`;
+        g.appendChild(o);
+      });
+      sel.appendChild(g);
+    };
+    addGroup("输入目录（上传的图）", inputFiles, "input");
+    addGroup("输出目录（历史生成）", outputFiles, "output");
+    sel.value = old;
+  } catch (_) { }
+}
+
 async function refreshJobs() {
   const jobs = await api("/api/jobs?limit=10");
   const list = document.getElementById("job-list");
@@ -187,5 +232,6 @@ async function refreshJobs() {
 }
 
 document.getElementById("job-form").addEventListener("submit", submitJob);
+document.getElementById("refresh-files").addEventListener("click", loadServerFiles);
 loadWorkflows();
 refreshJobs();
