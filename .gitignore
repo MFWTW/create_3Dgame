@@ -28,3 +28,6 @@ Thumbs.db
 
 # 运行数据（SQLite）
 server/data/
+
+# 部署密码文件（不入库）
+deploy/htpasswd

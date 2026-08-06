@@ -161,6 +161,11 @@ nginx     （统一入口、HTTPS、静态缓存）
 │   └── download_models.sh  # 模型下载（hf-mirror 国内镜像，断点续传）
 ├── docs/
 │   └── models.md           # 模型清单（含后续阶段规划）
+├── deploy/
+│   ├── docker-compose.yml   # web + nginx 编排
+│   ├── nginx.conf           # 反向代理 + HTTPS 示例
+│   ├── web.Dockerfile
+│   └── systemd/             # 宿主机开机自启单元
 ├── workflows/              # ComfyUI 工作流 JSON（API 格式）+ 说明
 │   ├── W1_concept.json     # 概念原画
 │   ├── W2_depth.json       # 深度图
@@ -185,7 +190,7 @@ nginx     （统一入口、HTTPS、静态缓存）
 | P2 ✅ | 后端 API + 前端页面（任务提交/进度/预览） | 网页能提交 W1/W2 任务并取回结果 |
 | P3 ✅ | W3 材质 + W4 音乐 + W5 音效接入 | 三类资产可从网页生成下载 |
 | P4 ✅ | W6 序列帧图集 | 跑步/攻击动作图集 + JSON 可下载 |
-| P5 | 部署上线 + 文档完善 | 公网可访问，README 覆盖部署细节 |
+| P5 ✅ | 部署上线 + 文档完善 | 部署文件就绪（docker-compose/nginx/systemd），公网可访问 |
 
 ---
 
@@ -275,3 +280,51 @@ bash server/run.sh
 - W6 已接入网页：上传角色设定图 → 选动作（run/attack）→ 生成 8 帧图集 + JSON 配置
 - ControlNet OpenPose SDXL 模型已下载（`ComfyUI/models/controlnet/OpenPoseXL2.safetensors`）
 - JSON 配置接口：`GET /api/jobs/{id}/sprite-config`（帧尺寸/网格/每帧时长）
+
+## 十、部署上线（P5）
+
+### 公网访问需要域名吗？
+
+**不需要。** 服务器有公网 IP 就能访问：`http://公网IP:8000`（直连）或
+`http://公网IP`（经 nginx 80 端口）。域名只是可选优化（好记 + HTTPS）；
+注意国内服务器绑域名做网站需要 ICP 备案，纯 IP 访问不涉及。
+
+### 方式一：宿主机一键部署（推荐，GPU 直通最省事）
+
+```bash
+bash scripts/deploy_host.sh
+# 需要开机自启时（改好路径后）：
+sudo cp deploy/systemd/*.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now comfyui indiegen-web
+```
+
+### 方式二：Docker（web + nginx；ComfyUI 仍在宿主机直通 GPU）
+
+```bash
+cd deploy
+docker compose up -d --build
+```
+
+### 防火墙
+
+```bash
+sudo ufw allow 80/tcp        # 推荐：只暴露 nginx 这一个端口
+# sudo ufw allow 8000/tcp    # 若想直接暴露网页端口
+# 8188（ComfyUI）保持仅本机访问，不要对公网开放
+```
+
+### 安全建议
+
+- 只暴露 80/443；ComfyUI 的 8188 端口保持仅本机
+- 公网可直接访问时，开启 nginx 基本认证：
+  `htpasswd -c deploy/htpasswd admin`，然后取消 `deploy/nginx.conf` 中
+  `auth_basic` 两行注释（密码文件不入 git）
+- 后续版本可加任务额度/API Token
+
+### 域名 + HTTPS（可选升级）
+
+1. 在域名服务商添加 A 记录 → 服务器公网 IP
+2. `sudo certbot --nginx -d your-domain.com`（自动配证书）
+3. 放开 `deploy/nginx.conf` 中 443 server 注释并填写证书路径
+4. 重启 nginx：`docker compose restart nginx` 或 `sudo systemctl reload nginx`

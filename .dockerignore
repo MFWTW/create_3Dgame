@@ -1,0 +1,9 @@
+.git
+ComfyUI
+assets
+outputs
+server/data
+*.safetensors
+*.ckpt
+*.pth
+*.log
