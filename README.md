@@ -1,50 +1,35 @@
-# 多模态 AI 资产生产网站（基于 ComfyUI）
+# 独立游戏 AI 资产全链路生成平台（基于 ComfyUI）
 
-> 面向**独立游戏**与**房地产/文旅**行业的 AI 资产全链路生成平台。
-> 本项目以 ComfyUI 为工作流引擎，前端为可交互的流程网站；
+> 面向独立游戏开发者/小型工作室的多模态资产生成平台：
+> 一套文本设定 → 概念原画 → 深度图 → 3D 材质 → 背景音乐 → 环境音效 → 序列帧图集。
+> 以 ComfyUI 为工作流引擎，前端为可交互的流程网站；
 > 每完成一个阶段就提交并推送到 GitHub（规范见「Git 与 GitHub 协作规范」）。
 
 ---
 
-## 一、业务背景与目标
+## 一、场景与目标
 
-### 1. 独立游戏资产全链路生成
+痛点：独立游戏团队在美术、音效、音乐上的外包成本占研发大头，
+且多方外包极难保证风格统一。
 
-痛点：独立游戏团队的美术、音效、音乐外包成本高，且多方外包难以保证风格统一。
+### 1. 统一设定的多模态资产流
 
-方案：一条从「文本设定」到「全套可用资产」的多模态流水线：
-
-```text
-文本设定（如：废土风格酒吧）
-  │
-  ├─ W1 概念原画（图像）─────────────┐
-  │        │                        │
-  │        ├─ W2 深度图               │
-  │        │     └─ W3 3D 贴图材质     │
-  │        │                          │
-  │        ├─ W4 背景音乐（暗黑氛围电子乐+金属敲击声）
-  │        └─ W5 NPC 环境音效（玻璃杯碰撞、含糊交谈）
-  │
-  └─ W6 2D 序列帧图集
-       输入：角色设定图 + 动作指令（跑步/攻击）
-       输出：可直接导入游戏引擎的 PNG 图集 + JSON 配置
-```
-
-### 2. 房地产与文旅「动态孪生」宣传
-
-痛点：传统宣传物料是静态效果图，缺乏沉浸感和「可动可交互」的体验。
-
-方案：用同一套 ComfyUI 引擎，把实拍照片/效果图变成动态宣传资产：
+开发者输入一段文本设定（如“废土风格酒吧”），工具依次生成：
 
 ```text
-实拍照片 / 效果图
-  ├─ W2 深度图（场景结构）
-  ├─ W7 运镜视频（AnimateDiff / SVD / Deforum）
-  ├─ TTS 解说配音 + 背景音乐混音
-  └─ 可选：360° 全景图 + 热点交互（Web 端漫游）
+文本设定（废土风格酒吧）
+  │
+  ├─ W1 概念原画（图像）
+  │     └─（人工确认后）── W2 深度图 ── W3 3D 贴图材质
+  │
+  ├─ W4 背景音乐（带金属敲击声的暗黑氛围电子乐）
+  └─ W5 NPC 环境音效（玻璃杯碰撞、含糊交谈声）
 ```
 
-两条业务线共用同一套「工作流 + 网站」框架，只是工作流 JSON 不同，二次开发成本低。
+### 2. 序列帧生成
+
+输入角色动作指令（如“跑步”“攻击”），工具基于角色设定图，
+直接输出可用于游戏引擎的 2D 动作序列帧图集（PNG 图集 + JSON 配置）。
 
 ---
 
@@ -53,7 +38,7 @@
 ```text
 ┌─────────────────────────────────────────────────────────┐
 │  浏览器（前端网站）                                      │
-│  - 业务线选择 / 设定输入 / 结果预览 / 资产下载 / 任务进度  │
+│  - 设定输入 / 任务提交 / 结果预览 / 资产下载 / 进度       │
 └──────────────┬──────────────────────────────────────────┘
                │ HTTP / WebSocket
 ┌──────────────▼──────────────────────────────────────────┐
@@ -65,9 +50,9 @@
                │ HTTP（本机或内网）
 ┌──────────────▼──────────────────────────────────────────┐
 │  ComfyUI（GPU 工作流引擎）                              │
-│  - workflows/*.json：W1~W7 各流程的 API 格式定义        │
-│  - 模型：SDXL/Flux、Depth Anything、ControlNet、        │
-│    AnimateDiff、音频生成节点等                           │
+│  - workflows/*.json：W1~W6 各流程的 API 格式定义        │
+│  - 模型：SDXL、MiDaS/Depth Anything、ControlNet、       │
+│    音频生成节点等                                        │
 │  - 输出：ComfyUI/output/（后同步到 assets/）            │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -76,14 +61,14 @@
 
 | 形态 | 说明 | 适用 |
 | --- | --- | --- |
-| A. 轻量版 | 直接用 ComfyUI 自带 WebUI + 本站 README 中的工作流说明，开发者手动跑流程 | 单人 / 验证阶段 |
-| B. 流程网站 | 自建前端 + 后端，把 W1~W7 封装成「填写设定 → 点按钮 → 看进度 → 下载资产」的完整产品 | 小团队 / 对外交付 |
+| A. 轻量版 | 直接用 ComfyUI 自带 WebUI + 工作流文件，开发者手动跑流程 | 单人 / 验证阶段 |
+| B. 流程网站 | 自建前端 + 后端，把 W1~W6 封装成「填写设定 → 点按钮 → 看进度 → 下载资产」的完整产品 | 小团队 / 对外交付 |
 
 本项目按形态 B 规划，但每阶段成果在形态 A 下也可用。
 
 ---
 
-## 三、ComfyUI 工作流设计（W1~W7）
+## 三、ComfyUI 工作流设计（W1~W6）
 
 > ComfyUI 工作流有 UI 格式与 API 格式两种 JSON。网站后端必须使用 **API 格式**
 > （Workflow → Export (API)），这样 `/prompt` 接口才能直接提交。
@@ -91,13 +76,12 @@
 
 | 编号 | 名称 | 输入 | 输出 | 关键节点 / 模型 |
 | --- | --- | --- | --- | --- |
-| W1 | 概念原画 | 文本设定 | 高清概念图 | SDXL / Flux 检查点 + 风格 LoRA + KSampler + 高清修复（Latent Upscale / Ultimate SD Upscale）；固定 seed 保证可复现 |
-| W2 | 深度图 | W1 概念图 | 灰度深度图 | Depth Anything V2 / MiDaS 预处理器（ControlNet 前置） |
+| W1 | 概念原画 | 文本设定 | 高清概念图 | SDXL 基座 + 风格 LoRA + KSampler + 高清修复（Latent Upscale / Ultimate SD Upscale）；固定 seed 保证可复现 |
+| W2 | 深度图 | W1 概念图 | 灰度深度图 | MiDaS（dpt_hybrid，controlnet_aux 预处理器）；可选升级 Depth Anything V2 |
 | W3 | 3D 贴图材质 | W2 深度图 | albedo / normal / height / roughness / metalness 贴图集 | 深度→法线节点（如 NormalMap 类自定义节点）；进阶可用 Material Diffusion / PBR 类节点一次生成多通道 |
 | W4 | 背景音乐 | 音乐风格描述 | WAV / MP3 + 元数据 | MusicGen（ComfyUI-MusicGen）或 Stable Audio Open（AudioScheduler 类节点）；无模型时可在后端接外部音乐 API |
 | W5 | 环境音效 | 音效描述 / 场景标签 | 循环音效 + 触发音效 | 程序化合成自定义节点（白噪声 + 滤波 + 采样拼贴），或音效库标签检索 |
 | W6 | 序列帧图集 | 角色设定图 + 动作指令 | PNG 图集 + JSON 配置（帧坐标、时长） | ControlNet OpenPose 逐帧生成（固定 seed + 动作 LoRA 保一致性）；或 AnimateDiff 生成动作视频后抽帧；ImageGrid 拼图 |
-| W7 | 动态孪生 | 照片/效果图 + 解说文案 | 运镜视频 + 配音混音 | 深度图 + AnimateDiff / SVD / Deforum 运镜；F5-TTS / XTTS 配音；ffmpeg 混音；可选 360° 全景 outpainting |
 
 ### 各工作流的工程要点
 
@@ -113,14 +97,14 @@
 
 ### 页面
 
-- **首页**：两条业务线入口（独立游戏 / 动态孪生）
+- **首页**：两条入口（多模态资产流 / 序列帧生成）
 - **流程页**：左侧填设定，中间看步骤进度，右侧预览当前结果
 - **资产库**：按项目归档的历史资产，支持下载与参数回看
 - **任务列表**：队列状态（排队 / 执行中 / 失败 / 完成）
 
 ### 核心交互
 
-1. 用户选择业务线并填写设定文本（可上传参考图）
+1. 用户输入文本设定（可上传参考图）
 2. 后端创建任务，调用 ComfyUI `/prompt` 提交对应工作流 JSON
 3. 前端通过 WebSocket 实时显示 ComfyUI 执行进度
 4. 每步完成后预览；用户点击「确认，进入下一步」才触发下游工作流
@@ -144,22 +128,22 @@ GET  /api/assets            资产列表 / 下载
 ### 推荐：docker-compose
 
 ```text
-comfyui   （GPU 服务，映射 /root/game/ComfyUI 模型目录）
+comfyui   （GPU 服务，映射 ComfyUI 模型目录）
 web       （前端静态资源 + 后端 API）
 nginx     （统一入口、HTTPS、静态缓存）
 ```
 
 - ComfyUI 与网站可部署在同一台 GPU 服务器（AutoDL / 阿里云 P100/A10 起）
 - 模型文件（safetensors/ckpt）只放服务器磁盘，**绝不进入 git**
-- 局域网演示时可不开公网，直接访问 7860 端口
+- 局域网演示时可不开公网，直接访问 8188 端口
 
 ### 模型与第三方节点清单（部署时安装）
 
-- 基础出图：SDXL 或 Flux 检查点 + 风格 LoRA
-- 深度/姿态：Depth Anything V2、ControlNet（OpenPose、Depth）
-- 视频：AnimateDiff / SVD + VideoHelperSuite
-- 音频：ComfyUI-MusicGen、AudioScheduler、F5-TTS / XTTS
-- 工具：ComfyUI-Essentials（ImageGrid 等）、ComfyUI-VideoHelperSuite
+- 基础出图：SDXL 基座 + 风格 LoRA（模型清单见 `docs/models.md`）
+- 深度：MiDaS（comfyui_controlnet_aux）；可选 Depth Anything V2
+- 姿态：ControlNet OpenPose（P4 序列帧用）
+- 音频：ComfyUI-MusicGen、AudioScheduler（P3）
+- 工具：ComfyUI-Essentials（ImageGrid 等）
 
 > 第三方节点与模型随 ComfyUI 版本迭代，具体版本以安装时官方仓库 README 为准。
 
@@ -171,15 +155,19 @@ nginx     （统一入口、HTTPS、静态缓存）
 .
 ├── README.md               # 本文档
 ├── .gitignore              # 排除模型、输出、环境等
-├── docker-compose.yml      # P6 部署（待建）
+├── docker-compose.yml      # P5 部署（待建）
+├── scripts/
+│   ├── setup_comfyui.sh    # ComfyUI 一键安装（克隆+依赖+自定义节点）
+│   └── download_models.sh  # 模型下载（hf-mirror 国内镜像，断点续传）
+├── docs/
+│   └── models.md           # 模型清单（含后续阶段规划）
 ├── workflows/              # ComfyUI 工作流 JSON（API 格式）+ 说明
 │   ├── W1_concept.json     # 概念原画
 │   ├── W2_depth.json       # 深度图
 │   ├── W3_material.json    # 3D 材质
 │   ├── W4_music.json       # 背景音乐
 │   ├── W5_sfx.json         # 环境音效
-│   ├── W6_sprite.json      # 序列帧图集
-│   └── W7_twin.json        # 动态孪生
+│   └── W6_sprite.json      # 序列帧图集
 ├── server/                 # 后端（FastAPI 草案，P2 起实现）
 ├── web/                    # 前端（P2 起实现）
 ├── assets/                 # 上传素材与生成结果（gitignore）
@@ -197,8 +185,7 @@ nginx     （统一入口、HTTPS、静态缓存）
 | P2 | 后端 API + 前端页面（任务提交/进度/预览） | 网页能提交 W1 任务并取回结果 |
 | P3 | W3 材质 + W4 音乐 + W5 音效接入 | 三类资产可从网页生成下载 |
 | P4 | W6 序列帧图集 | 跑步/攻击动作图集 + JSON 可下载 |
-| P5 | W7 动态孪生（视频+配音） | 照片→运镜视频→配音成片 |
-| P6 | 部署上线 + 文档完善 | 公网可访问，README 覆盖部署细节 |
+| P5 | 部署上线 + 文档完善 | 公网可访问，README 覆盖部署细节 |
 
 ---
 
@@ -222,7 +209,7 @@ git push origin main
   ```
 
   ⚠️ 强制推送会丢弃远程已有的提交，**只在单人维护时使用**；多人协作时不要用。
-- 建议：用「阶段提交 + 普通推送」代替「覆盖」，每次 P0~P6 完成一个里程碑，GitHub 上自然就是最新版，还能回滚。
+- 建议：用「阶段提交 + 普通推送」代替「覆盖」，每次 P0~P5 完成一个里程碑，GitHub 上自然就是最新版，还能回滚。
 
 ### 3. 提交规则
 
@@ -245,18 +232,22 @@ git push -u origin main
 
 ---
 
-## 九、快速开始（P0 之后的动作）
+## 九、快速开始（P1 起）
 
 ```bash
-# 1. 拉取 ComfyUI
-git clone https://github.com/comfyanonymous/ComfyUI.git ComfyUI
+# 1. 安装 ComfyUI（自动创建虚拟环境、安装依赖与自定义节点）
+bash scripts/setup_comfyui.sh
 
-# 2. 安装依赖与模型（SDXL/Flux、Depth Anything、ControlNet、音频节点等）
+# 2. 下载 P1 模型（SDXL 基座 + VAE + MiDaS，约 7.3GB）
+bash scripts/download_models.sh
 
 # 3. 启动 ComfyUI
-python main.py --listen 0.0.0.0 --port 7860
+cd ComfyUI && .venv/bin/python main.py --listen 0.0.0.0 --port 8188
 
-# 4. 在浏览器打开 http://localhost:7860，导入 workflows/W1_concept.json 开始验证
+# 4. 浏览器打开 http://localhost:8188，导入 workflows/W1_concept.json 开始验证
 ```
 
 > 各阶段详细操作会在对应阶段补充到本文档。
+
+> P1 环境说明：安装脚本自动检测 GPU（NVIDIA→CUDA / AMD→ROCm / 无 GPU→CPU），并固定
+> torch/torchvision/torchaudio 的配套版本（2.11.0），避免 ABI 不兼容导致启动失败。
