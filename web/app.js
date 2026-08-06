@@ -199,7 +199,8 @@ function showDetail(job) {
       preview.innerHTML += `<br><a href="/api/jobs/${job.id}/sprite-config" download="sprite_config.json">下载 JSON 图集配置</a>`;
     }
     if (job.batch) {
-      preview.innerHTML += `<br><a class="scene-btn" href="/scene.html?batch=${encodeURIComponent(job.batch)}">进入 3D 场景 →</a>`;
+      const sb = encodeURIComponent(job.batch);
+      preview.innerHTML += `<br><a class="scene-btn" href="/scene.html?batch=${sb}">进入 3D 场景 →</a> <a class="scene-btn" href="/scene2d.html?batch=${sb}">进入 2D 场景 →</a>`;
     }
   } else {
     preview.innerHTML = "";
