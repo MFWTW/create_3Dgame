@@ -213,10 +213,11 @@ Track-1 deliverables generated from this repository (English):
 
 | Deliverable | File |
 |-------------|------|
+| Submission index (requirement → file) | `deliverables/README.md` |
 | Project profile PDF | `deliverables/Project_Profile_EN.pdf` |
 | Supplementary PPT | `deliverables/Supplementary_Deck_EN.pptx` |
-| Hands-on walkthrough (EN/CN) | `docs/HANDS_ON_WALKTHROUGH_CN.md` |
-| Demo video (3-5 min) | recorded by the submitter following the walkthrough above |
+| Hands-on walkthrough | `docs/HANDS_ON_WALKTHROUGH_CN.md` |
+| Demo video (3-5 min) | provided by the submitter; checklist in `deliverables/README.md` |
 | Live benchmark data | `deliverables/perf/benchmark.json` + `.log` |
 
 Deliverable generator scripts live in `deliverables/tools/`
